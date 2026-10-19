@@ -10,7 +10,7 @@ works the studio produces. Everything runs on Netlify.
 | --- | --- | --- |
 | Web app | `src/` | React + Vite SPA, installable PWA, light and dark themes |
 | API | `netlify/functions/api.mts`, served at `/api/*` | One Netlify Function: GitHub sign-in, CRUD, sync endpoint |
-| Database | Netlify DB (Neon Postgres) | Schema in `db/migrations/`, applied by `scripts/migrate.mjs` on every build |
+| Database | Neon Postgres (your own Neon account) | Schema in `db/migrations/`, applied by `scripts/migrate.mjs` on every build |
 | Sync CLI | `cli/artache-sync.mjs` (also served at `/artache-sync.mjs`) | Runs on each computer, reads `~/.claude/projects`, posts metadata |
 | Source | GitHub | Netlify builds every push to `main`; PRs get deploy previews |
 
@@ -48,10 +48,17 @@ Later options: a Claude Code `SessionEnd` hook that runs the CLI automatically, 
 
 When `/api/me` is missing or reports the site isn't configured, the app runs on built-in sample data, so it can be viewed and deployed before the database and sign-in exist.
 
+## Why Neon directly
+
+Netlify DB is a Neon database managed through Netlify: it must be claimed within 7 days, is tied to one site and
+exposes few Neon features. A Neon account of your own keeps plain Postgres and adds: no expiry, several projects on the
+free plan, database branches (for example one per deploy preview), point-in-time restore, and the freedom to move
+hosting off Netlify without touching the data. The code only needs `DATABASE_URL`.
+
 ## Setup
 
-1. Netlify: import the GitHub repo. Build settings come from `netlify.toml`.
-2. Netlify DB: add it to the site (Extensions → Neon, or `npx netlify db init`). This sets `NETLIFY_DATABASE_URL`. Claim the database into a Neon account from the Netlify UI, otherwise Netlify deletes unclaimed databases after 7 days.
+1. Neon: create a free account at neon.tech, create a project named `artache`, and copy the pooled connection string.
+2. Netlify: import the GitHub repo. Build settings come from `netlify.toml`.
 3. GitHub OAuth app (github.com/settings/developers): homepage `https://<site>.netlify.app`, callback `https://<site>.netlify.app/api/auth/callback`.
-4. Netlify environment variables: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `SESSION_SECRET` (long random string), `ALLOWED_GITHUB_LOGINS`.
+4. Netlify environment variables (scoped to builds and functions): `DATABASE_URL`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `SESSION_SECRET` (long random string), `ALLOWED_GITHUB_LOGINS`.
 5. Redeploy. The build applies migrations, and the app leaves preview mode.

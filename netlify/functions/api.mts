@@ -1,15 +1,15 @@
 // Artache API: one Netlify Function serving every /api/* route.
-// Data lives in Netlify DB (Neon Postgres); sign-in is GitHub OAuth with a
+// Data lives in Neon Postgres (DATABASE_URL); sign-in is GitHub OAuth with a
 // signed session cookie. Every query is scoped to the signed-in owner.
-import { neon } from '@netlify/neon'
+import { neon } from '@neondatabase/serverless'
 import type { Config } from '@netlify/functions'
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 
 const env = (k: string) => process.env[k] ?? ''
-const configured = () => Boolean(env('NETLIFY_DATABASE_URL') && env('GITHUB_CLIENT_ID') && env('GITHUB_CLIENT_SECRET') && env('SESSION_SECRET'))
+const configured = () => Boolean(env('DATABASE_URL') && env('GITHUB_CLIENT_ID') && env('GITHUB_CLIENT_SECRET') && env('SESSION_SECRET'))
 
-let _sql: ReturnType<typeof neon> | null = null
-const db = () => (_sql ??= neon())
+let _sql: ReturnType<typeof neon<false, false>> | null = null
+const db = () => (_sql ??= neon<false, false>(env('DATABASE_URL')))
 
 // Responses ------------------------------------------------------------------
 

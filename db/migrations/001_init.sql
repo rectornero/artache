@@ -1,4 +1,4 @@
--- Artache initial schema (Netlify DB / Postgres).
+-- Artache initial schema (Postgres).
 -- Every row belongs to a user; the API filters by owner on every query.
 
 create table users (

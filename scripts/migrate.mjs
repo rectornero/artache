@@ -1,14 +1,14 @@
 // Applies db/migrations/*.sql in order, once each. Runs during the Netlify build.
-import { neon } from '@netlify/neon'
+import { neon } from '@neondatabase/serverless'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-if (!process.env.NETLIFY_DATABASE_URL) {
-  console.log('migrate: NETLIFY_DATABASE_URL not set, skipping')
+if (!process.env.DATABASE_URL) {
+  console.log('migrate: DATABASE_URL not set, skipping')
   process.exit(0)
 }
 
-const sql = neon()
+const sql = neon(process.env.DATABASE_URL)
 const dir = join(import.meta.dirname, '..', 'db', 'migrations')
 
 await sql`create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())`

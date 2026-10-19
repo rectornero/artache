@@ -1,7 +1,7 @@
 export type Me = { id: string; login: string; name: string | null; avatar_url: string | null }
 
 // Preview mode runs on sample data whenever the API is missing or not yet
-// configured (local `vite dev`, or a deploy before Netlify DB and GitHub
+// configured (local `vite dev`, or a deploy before the database and GitHub
 // sign-in are set up).
 export let isDemo = true
 export let me: Me | null = null
