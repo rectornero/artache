@@ -9,14 +9,14 @@ export const demoMachines: Machine[] = [
 
 export const demoProjects: Project[] = [
   { id: 'p1', name: 'Artache', slug: 'artache', description: 'The studio hub: projects, sessions and works in one place.', repo_full_name: 'rectornero/artache', local_paths: ['~/code/artache'], status: 'active', color: '#d7182a', pinned: true, last_activity_at: ago(0.3), created_at: ago(2) },
-  { id: 'p2', name: 'Overgame', slug: 'overgame', description: 'Game platform with Supabase backend.', repo_full_name: 'rectornero/overgame', local_paths: ['~/code/overgame'], status: 'active', color: '#13224b', pinned: true, last_activity_at: ago(1), created_at: ago(160) },
+  { id: 'p2', name: 'Overgame', slug: 'overgame', description: 'Game platform.', repo_full_name: 'rectornero/overgame', local_paths: ['~/code/overgame'], status: 'active', color: '#13224b', pinned: true, last_activity_at: ago(1), created_at: ago(160) },
   { id: 'p3', name: 'Novaula', slug: 'novaula', description: 'Learning platform.', repo_full_name: 'rectornero/novaula', local_paths: ['~/code/novaula'], status: 'active', color: '#3b5bdb', pinned: false, last_activity_at: ago(5), created_at: ago(200) },
   { id: 'p4', name: 'Deadend', slug: 'deadend', description: null, repo_full_name: 'rectornero/deadend', local_paths: ['~/code/deadend'], status: 'active', color: '#e8590c', pinned: false, last_activity_at: ago(4), created_at: ago(90) },
   { id: 'p5', name: 'Scuola', slug: 'scuola', description: 'School management experiment.', repo_full_name: null, local_paths: ['~/code/scuola'], status: 'paused', color: '#2b8a3e', pinned: false, last_activity_at: ago(170), created_at: ago(170) },
 ]
 
 const titles: [string, string, number, string][] = [
-  ['p1', 'Scaffold Artache app with Supabase and Netlify', 0.3, 'main'],
+  ['p1', 'Scaffold Artache app on Netlify', 0.3, 'main'],
   ['p2', 'Fix leaderboard RLS policy', 1, 'fix/leaderboard-rls'],
   ['p4', 'Add level editor autosave', 4, 'feat/autosave'],
   ['p3', 'Course page redesign', 5, 'design/course-page'],

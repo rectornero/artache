@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
-import { isDemo } from '../lib/supabase'
+import { isDemo } from '../lib/mode'
 import { Icon, type IconName } from './Icon'
 
 const nav: { to: string; label: string; icon: IconName }[] = [
@@ -60,7 +60,7 @@ export function Layout() {
       <main className="main">
         {isDemo && (
           <div className="demo-banner">
-            Preview mode with sample data. Connect Supabase to see your real projects.
+            Preview mode with sample data. Your real projects appear once the database and GitHub sign-in are set up.
           </div>
         )}
         <Outlet />

@@ -24,12 +24,12 @@ export default defineConfig({
         ],
       },
       workbox: {
-        navigateFallbackDenylist: [/^\/functions/],
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
-            urlPattern: ({ url }) => url.hostname.endsWith('.supabase.co'),
+            urlPattern: ({ url, request }) => url.pathname.startsWith('/api/') && request.method === 'GET' && !url.pathname.startsWith('/api/auth'),
             handler: 'NetworkFirst',
-            options: { cacheName: 'supabase', networkTimeoutSeconds: 4 },
+            options: { cacheName: 'api', networkTimeoutSeconds: 4 },
           },
         ],
       },

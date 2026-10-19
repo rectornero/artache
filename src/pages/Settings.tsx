@@ -4,10 +4,10 @@ import { ErrorNote, Loading, PageHeader } from '../components/ui'
 import { createToken, listMachines, listTokens, revokeToken } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { timeAgo, useAsync } from '../lib/hooks'
-import { isDemo, supabaseUrl } from '../lib/supabase'
+import { isDemo } from '../lib/mode'
 
 export function Settings() {
-  const { name, session, signOut } = useAuth()
+  const { name, login, signOut } = useAuth()
   const { data, error, loading, reload } = useAsync(() => Promise.all([listTokens(), listMachines()]))
   const [label, setLabel] = useState('')
   const [fresh, setFresh] = useState<string | null>(null)
@@ -20,7 +20,7 @@ export function Settings() {
     reload()
   }
 
-  const url = supabaseUrl || 'https://<project>.supabase.co'
+  const url = window.location.origin
   const command = `ARTACHE_URL=${url} ARTACHE_TOKEN=${fresh ?? 'art_…'} node artache-sync.mjs`
 
   return (
@@ -32,7 +32,7 @@ export function Settings() {
         <div className="row-between">
           <div>
             <p className="strong">{name}</p>
-            <p className="muted">{isDemo ? 'Preview mode' : session?.user.email}</p>
+            <p className="muted">{isDemo ? 'Preview mode' : `@${login}`}</p>
           </div>
           {!isDemo && <button className="btn" onClick={signOut}><Icon name="logout" size={16} /> Sign out</button>}
         </div>

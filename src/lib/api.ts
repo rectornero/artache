@@ -1,9 +1,9 @@
 import { demoMachines, demoProjects, demoSessions, demoTokens, demoWorks } from './demo'
-import { isDemo, supabase } from './supabase'
+import { isDemo } from './mode'
 import type { Machine, Project, Session, SyncToken, Work, WorkKind } from './types'
 
-// One data layer for both modes: Supabase when configured, in-memory sample
-// data otherwise.
+// One data layer for both modes: the Artache API (Netlify Functions + Netlify
+// DB) when configured, in-memory sample data otherwise.
 const mem = {
   projects: [...demoProjects],
   sessions: [...demoSessions],
@@ -12,39 +12,48 @@ const mem = {
   tokens: [...demoTokens],
 }
 
-function must<T>(res: { data: T | null; error: { message: string } | null }): T {
-  if (res.error) throw new Error(res.error.message)
-  return res.data as T
+async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`/api${path}`, {
+    credentials: 'same-origin',
+    ...init,
+    headers: init.body ? { 'Content-Type': 'application/json', ...init.headers } : init.headers,
+  })
+  const body = await res.json().catch(() => null)
+  if (res.status === 401) {
+    window.location.href = '/'
+  }
+  if (!res.ok && res.status !== 404) throw new Error(body?.error ?? res.statusText)
+  return body as T
 }
+
+const post = <T>(path: string, data: unknown) => call<T>(path, { method: 'POST', body: JSON.stringify(data) })
 
 const byActivity = <T extends { last_activity_at: string | null }>(a: T, b: T) =>
   (b.last_activity_at ?? '').localeCompare(a.last_activity_at ?? '')
 
 export async function listProjects(): Promise<Project[]> {
   if (isDemo) return [...mem.projects].sort(byActivity)
-  return must(await supabase!.from('projects').select('*').order('last_activity_at', { ascending: false, nullsFirst: false }))
+  return call('/projects')
 }
 
 export async function getProject(slug: string): Promise<Project | null> {
   if (isDemo) return mem.projects.find((p) => p.slug === slug) ?? null
-  return must(await supabase!.from('projects').select('*').eq('slug', slug).maybeSingle())
+  return call(`/projects/${encodeURIComponent(slug)}`)
 }
 
 export async function saveProject(p: Partial<Project> & { name: string }): Promise<Project> {
-  const slug = p.slug ?? slugify(p.name)
   if (isDemo) {
     const existing = mem.projects.find((x) => x.id === p.id)
     if (existing) return Object.assign(existing, p)
+    const now = new Date().toISOString()
     const created: Project = {
       id: crypto.randomUUID(), description: null, repo_full_name: null, local_paths: [], status: 'active',
-      color: null, pinned: false, last_activity_at: new Date().toISOString(), created_at: new Date().toISOString(),
-      ...p, slug,
+      color: null, pinned: false, last_activity_at: now, created_at: now, ...p, slug: slugify(p.name),
     }
     mem.projects.push(created)
     return created
   }
-  const row = { ...p, slug }
-  return must(await supabase!.from('projects').upsert(row).select().single())
+  return post('/projects', p)
 }
 
 export async function listSessions(opts: { projectId?: string; limit?: number } = {}): Promise<Session[]> {
@@ -52,23 +61,21 @@ export async function listSessions(opts: { projectId?: string; limit?: number } 
   if (isDemo) {
     return mem.sessions.filter((s) => !opts.projectId || s.project_id === opts.projectId).sort(byActivity).slice(0, limit)
   }
-  let q = supabase!.from('sessions').select('*').order('last_activity_at', { ascending: false, nullsFirst: false }).limit(limit)
-  if (opts.projectId) q = q.eq('project_id', opts.projectId)
-  return must(await q)
+  const q = new URLSearchParams({ limit: String(limit) })
+  if (opts.projectId) q.set('project', opts.projectId)
+  return call(`/sessions?${q}`)
 }
 
 export async function listMachines(): Promise<Machine[]> {
   if (isDemo) return mem.machines
-  return must(await supabase!.from('machines').select('*').order('last_seen_at', { ascending: false }))
+  return call('/machines')
 }
 
 export async function listWorks(kind?: WorkKind): Promise<Work[]> {
   if (isDemo) {
     return mem.works.filter((w) => !kind || w.kind === kind).sort((a, b) => b.updated_at.localeCompare(a.updated_at))
   }
-  let q = supabase!.from('works').select('*').order('updated_at', { ascending: false })
-  if (kind) q = q.eq('kind', kind)
-  return must(await q)
+  return call(kind ? `/works?kind=${kind}` : '/works')
 }
 
 export async function saveWork(w: Partial<Work> & { kind: WorkKind; title: string }): Promise<Work> {
@@ -83,7 +90,7 @@ export async function saveWork(w: Partial<Work> & { kind: WorkKind; title: strin
     mem.works.push(created)
     return created
   }
-  return must(await supabase!.from('works').upsert(w).select().single())
+  return post('/works', w)
 }
 
 export async function deleteWork(id: string): Promise<void> {
@@ -91,26 +98,25 @@ export async function deleteWork(id: string): Promise<void> {
     mem.works = mem.works.filter((w) => w.id !== id)
     return
   }
-  must(await supabase!.from('works').delete().eq('id', id))
+  await call(`/works/${id}`, { method: 'DELETE' })
 }
 
 export async function listTokens(): Promise<SyncToken[]> {
   if (isDemo) return mem.tokens
-  return must(
-    await supabase!.from('sync_tokens').select('id, label, token_hint, last_used_at, revoked_at, created_at').order('created_at', { ascending: false }),
-  )
+  return call('/tokens')
 }
 
 // The raw token is shown once; only its hash is stored.
 export async function createToken(label: string): Promise<string> {
-  const bytes = crypto.getRandomValues(new Uint8Array(24))
-  const token = 'art_' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
-  const hint = `art_…${token.slice(-4)}`
   if (isDemo) {
-    mem.tokens.unshift({ id: crypto.randomUUID(), label, token_hint: hint, last_used_at: null, revoked_at: null, created_at: new Date().toISOString() })
+    const token = 'art_' + Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.toString(16).padStart(2, '0')).join('')
+    mem.tokens.unshift({
+      id: crypto.randomUUID(), label, token_hint: `art_…${token.slice(-4)}`, last_used_at: null, revoked_at: null,
+      created_at: new Date().toISOString(),
+    })
     return token
   }
-  must(await supabase!.from('sync_tokens').insert({ label, token_hash: await sha256(token), token_hint: hint }))
+  const { token } = await post<{ token: string }>('/tokens', { label })
   return token
 }
 
@@ -120,12 +126,7 @@ export async function revokeToken(id: string): Promise<void> {
     if (t) t.revoked_at = new Date().toISOString()
     return
   }
-  must(await supabase!.from('sync_tokens').update({ revoked_at: new Date().toISOString() }).eq('id', id))
-}
-
-async function sha256(text: string) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
+  await post(`/tokens/${id}/revoke`, {})
 }
 
 export function slugify(text: string) {

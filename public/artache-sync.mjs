@@ -6,7 +6,7 @@
 // to the Artache sync endpoint. Message contents never leave the machine.
 //
 // Usage:
-//   ARTACHE_URL=https://<ref>.supabase.co ARTACHE_TOKEN=art_... node artache-sync.mjs
+//   ARTACHE_URL=https://<your-site>.netlify.app ARTACHE_TOKEN=art_... node artache-sync.mjs
 //   node artache-sync.mjs --dry-run        # print what would be sent
 //
 // Config can also live in ~/.artache.json: { "url": "...", "token": "art_..." }
@@ -132,7 +132,7 @@ async function main() {
     process.exit(1);
   }
 
-  const res = await fetch(`${cfg.url.replace(/\/$/, "")}/functions/v1/sync`, {
+  const res = await fetch(`${cfg.url.replace(/\/$/, "")}/api/sync`, {
     method: "POST",
     headers: { Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json" },
     body: JSON.stringify(payload),
