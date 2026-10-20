@@ -14,6 +14,7 @@
 //   node artache-sync.mjs post "Shipped the new editor" --body "..." --kind release --url https://...
 //
 // Config can also live in ~/.artache.json: { "url": "...", "token": "art_..." }
+// ARTACHE_URL defaults to https://artache.netlify.app.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -32,7 +33,7 @@ function loadConfig() {
   const file = join(homedir(), ".artache.json");
   const fromFile = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
   return {
-    url: process.env.ARTACHE_URL ?? fromFile.url,
+    url: process.env.ARTACHE_URL ?? fromFile.url ?? "https://artache.netlify.app",
     token: process.env.ARTACHE_TOKEN ?? fromFile.token,
     machine: process.env.ARTACHE_MACHINE ?? fromFile.machine ?? hostname(),
     claudeDir: process.env.CLAUDE_CONFIG_DIR ?? fromFile.claudeDir ?? join(homedir(), ".claude"),
