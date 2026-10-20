@@ -11,7 +11,6 @@ export function Settings() {
   const { data, error, loading, reload } = useAsync(() => Promise.all([listTokens(), listMachines()]))
   const [label, setLabel] = useState('')
   const [fresh, setFresh] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
 
   async function create(e: React.FormEvent) {
     e.preventDefault()
@@ -21,7 +20,11 @@ export function Settings() {
   }
 
   const url = window.location.origin
-  const command = `ARTACHE_URL=${url} ARTACHE_TOKEN=${fresh ?? 'art_…'} node artache-sync.mjs`
+  const token = fresh ?? 'art_…'
+  const syncCommand = `ARTACHE_URL=${url} ARTACHE_TOKEN=${token} node artache-sync.mjs`
+  const mcpCommand = `claude mcp add --transport http --scope user artache ${url}/api/mcp --header "Authorization: Bearer ${token}"`
+  const allowJson = `{ "permissions": { "allow": ["mcp__artache"] } }`
+  const postCommand = `node artache-sync.mjs post "Shipped the new editor" --kind release --url https://…`
 
   return (
     <div className="page narrow">
@@ -39,37 +42,11 @@ export function Settings() {
       </section>
 
       <section className="panel">
-        <header className="panel-head"><h2>Sync Claude Code</h2></header>
+        <header className="panel-head"><h2>Access tokens</h2></header>
         <p className="muted">
-          Each computer keeps its Claude Code history locally. The sync command reads it and sends only titles, folders,
-          branches and timestamps here. Your conversations stay on your machine.
+          One token per computer. Claude Code uses it to post updates here, and the sync command uses it to send your
+          session history. The commands below fill in a new token as soon as you create one.
         </p>
-        <ol className="steps">
-          <li>Create a token for the computer below.</li>
-          <li>
-            Download <a href="/artache-sync.mjs" download className="link">artache-sync.mjs</a> (needs Node 18 or newer).
-          </li>
-          <li>
-            Run it from a terminal:
-            <pre className="code">
-              <code>{command}</code>
-              <button
-                className="icon-btn copy"
-                onClick={() => {
-                  navigator.clipboard.writeText(command)
-                  setCopied(true)
-                  setTimeout(() => setCopied(false), 1500)
-                }}
-                aria-label="Copy command"
-              >
-                <Icon name="copy" size={15} />
-              </button>
-            </pre>
-            {copied && <span className="muted">Copied.</span>}
-          </li>
-          <li>To keep it fresh, schedule it (cron, launchd or Task Scheduler) every 15 minutes.</li>
-        </ol>
-
         <form className="inline-form" onSubmit={create}>
           <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Computer name, e.g. studio-mac" />
           <button className="btn btn-primary">Create token</button>
@@ -80,7 +57,6 @@ export function Settings() {
             <code className="mono">{fresh}</code>
           </div>
         )}
-
         {error ? <ErrorNote message={error} /> : loading || !data ? <Loading /> : (
           <>
             <h3 className="subhead">Tokens</h3>
@@ -96,6 +72,54 @@ export function Settings() {
                 </li>
               ))}
             </ul>
+          </>
+        )}
+      </section>
+
+      <section className="panel">
+        <header className="panel-head"><h2>Let Claude post here</h2></header>
+        <p className="muted">
+          Connect Claude Code once per computer and every project you build with it can post progress to your Updates
+          feed and add platforms, articles and works to the Studio, without you copying anything over.
+        </p>
+        <ol className="steps">
+          <li>
+            Add Artache to Claude Code (needs a token from above):
+            <CopyBlock text={mcpCommand} />
+          </li>
+          <li>
+            Let Claude use it without asking each time, by adding this to <code className="mono">~/.claude/settings.json</code>:
+            <CopyBlock text={allowJson} />
+          </li>
+          <li>
+            Tell Claude when to post, by adding this to <code className="mono">~/.claude/CLAUDE.md</code> (all projects)
+            or a project's own <code className="mono">CLAUDE.md</code>:
+            <CopyBlock text={CLAUDE_MD} />
+          </li>
+        </ol>
+        <p className="muted">
+          Scripts and CI jobs can post too, with the sync tool below: <code className="mono">{postCommand}</code>
+        </p>
+      </section>
+
+      <section className="panel">
+        <header className="panel-head"><h2>Sync Claude Code history</h2></header>
+        <p className="muted">
+          Each computer keeps its Claude Code history locally. The sync command reads it and sends only titles, folders,
+          branches and timestamps here. Your conversations stay on your machine.
+        </p>
+        <ol className="steps">
+          <li>
+            Download <a href="/artache-sync.mjs" download className="link">artache-sync.mjs</a> (needs Node 18 or newer).
+          </li>
+          <li>
+            Run it from a terminal with the computer's token:
+            <CopyBlock text={syncCommand} />
+          </li>
+          <li>To keep it fresh, schedule it (cron, launchd or Task Scheduler) every 15 minutes.</li>
+        </ol>
+        {data && (
+          <>
             <h3 className="subhead">Machines</h3>
             <ul className="plain-list">
               {data[1].map((m) => (
@@ -111,5 +135,35 @@ export function Settings() {
         )}
       </section>
     </div>
+  )
+}
+
+// Kept in step with the "Posting updates to Artache" guide.
+const CLAUDE_MD = `## Artache
+This studio tracks its work in Artache. The \`artache\` MCP tools post there.
+- After meaningful progress (a feature or fix merged, a release or deploy, a milestone, a decision, or a question the team must answer), post one update with \`artache_post_update\`. Use this repo's GitHub name ("owner/repo") as \`project\`, or the folder name if there is no repo.
+- Write the title for someone who didn't see the session (under 100 characters). In the body: what changed, why it matters, what's next. Add a \`url\` to the PR, deploy or doc when there is one.
+- Use kind \`release\` for something shipped, \`milestone\` for a big step, \`question\` when you need a human decision, \`note\` for context, \`update\` otherwise.
+- Don't post for trivial edits, failed attempts or work in progress with nothing to show. One update per meaningful result; check \`artache_recent_updates\` if unsure whether it was already posted.
+- When you create or publish a platform, article or other work, record it with \`artache_upsert_work\` and a stable \`key\` like "owner/repo:article-slug", so later changes update the same item.`
+
+function CopyBlock({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <pre className="code">
+      <code>{text}</code>
+      <button
+        className="icon-btn copy"
+        onClick={() => {
+          navigator.clipboard.writeText(text)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        }}
+        aria-label={copied ? 'Copied' : 'Copy'}
+        title={copied ? 'Copied' : 'Copy'}
+      >
+        <Icon name={copied ? 'check' : 'copy'} size={15} />
+      </button>
+    </pre>
   )
 }

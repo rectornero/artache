@@ -61,3 +61,19 @@ export type SyncToken = {
   revoked_at: string | null
   created_at: string
 }
+
+export type PostKind = 'update' | 'milestone' | 'release' | 'note' | 'question'
+
+export type Post = {
+  id: string
+  project_id: string | null
+  project_slug: string | null
+  project_name: string | null
+  kind: PostKind
+  title: string
+  body: string | null
+  url: string | null
+  source: 'claude' | 'cli' | 'web'
+  author_label: string | null
+  created_at: string
+}

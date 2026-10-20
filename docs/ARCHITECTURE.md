@@ -9,19 +9,20 @@ works the studio produces. Everything runs on Netlify.
 | Piece | Where | Role |
 | --- | --- | --- |
 | Web app | `src/` | React + Vite SPA, installable PWA, light and dark themes |
-| API | `netlify/functions/api.mts`, served at `/api/*` | One Netlify Function: GitHub sign-in, CRUD, sync endpoint |
+| API | `netlify/functions/api.mts`, served at `/api/*` | One Netlify Function: GitHub sign-in, CRUD, sync endpoint, token API (`/api/v1`) and MCP server (`/api/mcp`) |
 | Database | Neon Postgres (your own Neon account) | Schema in `db/migrations/`, applied by `scripts/migrate.mjs` on every build |
-| Sync CLI | `cli/artache-sync.mjs` (also served at `/artache-sync.mjs`) | Runs on each computer, reads `~/.claude/projects`, posts metadata |
+| Sync CLI | `cli/artache-sync.mjs` (also served at `/artache-sync.mjs`) | Runs on each computer, reads `~/.claude/projects`, posts metadata; `post` sends an update |
 | Source | GitHub | Netlify builds every push to `main`; PRs get deploy previews |
 
 ## Data model
 
 - `users`: GitHub accounts that have signed in.
 - `machines`: each computer that has synced (name, platform, last seen).
-- `sync_tokens`: per-computer secrets for the CLI. Only a SHA-256 hash and a short hint are stored; the raw token is shown once.
+- `sync_tokens`: per-computer access tokens (shown as "Access tokens") for the CLI, scripts and Claude Code. Only a SHA-256 hash and a short hint are stored; the raw token is shown once.
 - `projects`: a codebase or product. Created by hand or by sync. Synced folders merge by GitHub repo name (or folder name), so the same repo on two machines becomes one project with several `local_paths`.
 - `sessions`: one Claude Code conversation (title, folder, branch, model, message count, first and last activity). Unique per `(owner, external_id)`, so re-syncing is idempotent.
-- `works`: the studio's output, with `kind` = `platform` | `article` | `work`, a status pipeline (idea, drafting, in progress, review, published, archived), optional project link, URL, summary, Markdown body and tags.
+- `works`: the studio's output, with `kind` = `platform` | `article` | `work`, a status pipeline (idea, drafting, in progress, review, published, archived), optional project link, URL, summary, Markdown body and tags. `external_key` lets Claude update the same work on later calls.
+- `posts`: the Updates feed. Kind (`update`, `milestone`, `release`, `note`, `question`), title, Markdown body, link, project, and `source` (`claude`, `cli`, `web`).
 
 Every row has an `owner`; the API adds `owner = <signed-in user>` to every query.
 
@@ -43,6 +44,17 @@ Claude Code stores each conversation as a JSONL transcript under
 The API hashes the token, finds its owner, upserts the machine, merges projects by slug and upserts sessions in batches of 200. Scheduling the CLI every 15 minutes (cron, launchd, Task Scheduler) keeps everything current.
 
 Later options: a Claude Code `SessionEnd` hook that runs the CLI automatically, and importing claude.ai cloud sessions.
+
+## How Claude Code posts updates
+
+`/api/mcp` is a stateless MCP server (streamable HTTP, JSON responses) authenticated with an access token. Once added with
+`claude mcp add --transport http --scope user artache https://<site>/api/mcp --header "Authorization: Bearer art_..."`,
+every Claude Code session on that computer gets five tools: `artache_post_update`, `artache_upsert_work`,
+`artache_list_projects`, `artache_list_works` and `artache_recent_updates`. A CLAUDE.md snippet (shown in Settings) tells
+Claude when to post. Projects are matched by slug, GitHub repo or name, and created on first post.
+
+The same operations are plain REST for scripts and CI: `POST /api/v1/posts`, `GET /api/v1/posts`, `POST /api/v1/works`
+(upsert by `key`), `GET /api/v1/works`, `GET /api/v1/projects`, all with `Authorization: Bearer art_...`.
 
 ## Preview mode
 

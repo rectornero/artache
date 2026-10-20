@@ -173,19 +173,25 @@ type SyncPayload = {
   sessions: IncomingSession[]
 }
 
-async function sync(req: Request) {
-  const token = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
-  if (!token?.startsWith('art_')) throw new HttpError(401, 'missing sync token')
+// Access tokens (`art_...`) let the sync CLI, scripts and Claude Code act for
+// their owner without a browser session.
+async function tokenOwner(req: Request) {
+  const token = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim()
+  if (!token?.startsWith('art_')) throw new HttpError(401, 'missing access token')
   const sql = db()
-
   const [tok] = await sql`select id, owner, revoked_at from sync_tokens where token_hash = ${sha256(token)}`
-  if (!tok || tok.revoked_at) throw new HttpError(401, 'invalid sync token')
-  const owner = tok.owner as string
+  if (!tok || tok.revoked_at) throw new HttpError(401, 'invalid access token')
+  await sql`update sync_tokens set last_used_at = now() where id = ${tok.id}`
+  return tok.owner as string
+}
+
+async function sync(req: Request) {
+  const owner = await tokenOwner(req)
+  const sql = db()
 
   const payload = (await req.json().catch(() => null)) as SyncPayload | null
   if (!payload?.machine?.name || !Array.isArray(payload.sessions)) throw new HttpError(400, 'machine and sessions are required')
 
-  await sql`update sync_tokens set last_used_at = now() where id = ${tok.id}`
   const [machine] = await sql`
     insert into machines (owner, name, platform, last_seen_at)
     values (${owner}, ${payload.machine.name}, ${payload.machine.platform ?? null}, now())
@@ -244,6 +250,251 @@ async function sync(req: Request) {
   return json({ ok: true, machine: payload.machine.name, projects: projectIdByPath.size, sessions: rows.length })
 }
 
+// Posting: updates and works published by Claude Code, scripts or the web app -----
+
+const POST_KINDS = ['update', 'milestone', 'release', 'note', 'question']
+type Source = 'claude' | 'cli' | 'web'
+
+// Finds a project by slug, GitHub repo ("owner/name") or name, creating it when
+// it doesn't exist yet so a brand-new Claude project can post straight away.
+async function resolveProject(owner: string, ref: unknown) {
+  const text = str(ref)
+  if (!text) return null
+  const sql = db()
+  const slug = slugify(text.split('/').pop()!)
+  const [found] = await sql`
+    select id, slug from projects
+    where owner = ${owner} and (slug = ${slug} or lower(repo_full_name) = lower(${text}) or lower(name) = lower(${text}))
+    order by (slug = ${slug}) desc limit 1`
+  if (found) return found as { id: string; slug: string }
+  const repo = /^[\w.-]+\/[\w.-]+$/.test(text) ? text : null
+  const [row] = await sql`
+    insert into projects (owner, name, slug, repo_full_name, last_activity_at)
+    values (${owner}, ${text.split('/').pop()}, ${slug}, ${repo}, now())
+    on conflict (owner, slug) do update set updated_at = now()
+    returning id, slug`
+  return row as { id: string; slug: string }
+}
+
+async function createPost(owner: string, b: Record<string, unknown>, source: Source) {
+  const title = str(b.title)
+  if (!title) throw new HttpError(400, 'title is required')
+  const sql = db()
+  const project = b.project_id
+    ? ((await sql`select id, slug from projects where id = ${String(b.project_id)} and owner = ${owner}`)[0] as { id: string; slug: string } | undefined) ?? null
+    : await resolveProject(owner, b.project)
+  if (b.project_id && !project) throw new HttpError(400, 'unknown project')
+  const [row] = await sql`
+    insert into posts (owner, project_id, kind, title, body, url, source, author_label, session_external_id)
+    values (${owner}, ${project?.id ?? null}, ${oneOf(b.kind, POST_KINDS, 'update')}, ${title.slice(0, 300)},
+      ${str(b.body)?.slice(0, 20000) ?? null}, ${str(b.url)}, ${source}, ${str(b.author)?.slice(0, 100) ?? null},
+      ${str(b.session_id)})
+    returning *`
+  if (project) await sql`update projects set last_activity_at = greatest(last_activity_at, now()) where id = ${project.id}`
+  return Object.assign(row as Record<string, any>, { project_slug: project?.slug ?? null })
+}
+
+// With `key`, the same work is updated on every call instead of duplicated.
+// Fields left out keep their current value.
+async function upsertWork(owner: string, b: Record<string, unknown>) {
+  const sql = db()
+  const key = str(b.key)?.slice(0, 200) ?? null
+  const [current] = key ? await sql`select * from works where owner = ${owner} and external_key = ${key}` : []
+  const title = str(b.title) ?? current?.title
+  if (!title) throw new HttpError(400, 'title is required')
+  const project = b.project !== undefined ? await resolveProject(owner, b.project) : null
+  const pick = (k: string) => (b[k] !== undefined ? str(b[k]) : (current?.[k] ?? null))
+  const kind = oneOf(b.kind, WORK_KINDS, current?.kind ?? 'work')
+  const status = oneOf(b.status, WORK_STATUSES, current?.status ?? 'idea')
+  const tags = Array.isArray(b.tags) ? b.tags.filter((t) => typeof t === 'string').slice(0, 20) : (current?.tags ?? [])
+  const projectId = project?.id ?? current?.project_id ?? null
+  const publishedAt = status === 'published' ? (current?.published_at ?? new Date().toISOString()) : null
+  if (current) {
+    const [row] = await sql`
+      update works set kind = ${kind}, title = ${title}, status = ${status}, project_id = ${projectId}, url = ${pick('url')},
+        summary = ${pick('summary')}, body = ${pick('body')}, tags = ${tags}, published_at = ${publishedAt}, updated_at = now()
+      where id = ${current.id} returning *`
+    return { work: row, created: false }
+  }
+  const [row] = await sql`
+    insert into works (owner, kind, title, status, project_id, url, summary, body, tags, published_at, external_key)
+    values (${owner}, ${kind}, ${title}, ${status}, ${projectId}, ${pick('url')}, ${pick('summary')}, ${pick('body')}, ${tags}, ${publishedAt}, ${key})
+    returning *`
+  return { work: row, created: true }
+}
+
+const listProjectsBrief = (owner: string) => db()`
+  select slug, name, repo_full_name, status, description, last_activity_at
+  from projects where owner = ${owner} order by last_activity_at desc nulls last`
+
+const listWorksBrief = (owner: string, kind: string | null) => db()`
+  select w.id, w.external_key as key, w.kind, w.title, w.status, w.url, w.summary, w.tags, p.slug as project, w.updated_at
+  from works w left join projects p on p.id = w.project_id
+  where w.owner = ${owner} and (${kind}::text is null or w.kind = ${kind})
+  order by w.updated_at desc limit 200`
+
+const listPosts = (owner: string, projectId: string | null, limit: number) => db()`
+  select po.*, p.slug as project_slug, p.name as project_name
+  from posts po left join projects p on p.id = po.project_id
+  where po.owner = ${owner} and (${projectId}::uuid is null or po.project_id = ${projectId})
+  order by po.created_at desc limit ${limit}`
+
+// Public v1 API for tokens: /api/v1/projects, /api/v1/posts, /api/v1/works
+async function v1(req: Request, seg: string[]) {
+  const owner = await tokenOwner(req)
+  const url = new URL(req.url)
+  const body = async () => ((await req.json().catch(() => null)) ?? {}) as Record<string, unknown>
+  const source: Source = req.headers.get('x-artache-source') === 'cli' ? 'cli' : 'claude'
+  const [resource] = seg
+
+  if (resource === 'projects' && req.method === 'GET') return json(await listProjectsBrief(owner))
+  if (resource === 'posts' && req.method === 'POST') return json(await createPost(owner, await body(), source), 201)
+  if (resource === 'posts' && req.method === 'GET') {
+    const project = url.searchParams.get('project')
+    const p = project ? await resolveProject(owner, project) : null
+    return json(await listPosts(owner, p?.id ?? null, Math.min(Number(url.searchParams.get('limit')) || 20, 100)))
+  }
+  if (resource === 'works' && req.method === 'POST') {
+    const { work, created } = await upsertWork(owner, await body())
+    return json(work, created ? 201 : 200)
+  }
+  if (resource === 'works' && req.method === 'GET') return json(await listWorksBrief(owner, url.searchParams.get('kind')))
+  throw new HttpError(404, 'not found')
+}
+
+// MCP server ----------------------------------------------------------------------------
+// Streamable HTTP, stateless, JSON responses. Add it to Claude Code with:
+//   claude mcp add --transport http artache https://<site>/api/mcp --header "Authorization: Bearer art_..."
+
+const MCP_TOOLS = [
+  {
+    name: 'artache_post_update',
+    description:
+      'Publish an update to the Artache studio feed. Use it after meaningful progress on a project: a feature shipped, a milestone reached, a release, a decision, or a question for the team. Write for people who did not watch the session: a short title, then what changed and why it matters.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project slug, GitHub repo ("owner/name") or folder name. Created if new.' },
+        title: { type: 'string', description: 'One line, under 100 characters.' },
+        body: { type: 'string', description: 'Markdown details: what changed, why, what is next.' },
+        kind: { type: 'string', enum: POST_KINDS, description: 'Default "update".' },
+        url: { type: 'string', description: 'Link to a PR, deploy, doc or release.' },
+        session_id: { type: 'string', description: 'Claude Code session id, if known.' },
+        author: { type: 'string', description: 'Who is posting, e.g. "Claude on studio-mac".' },
+      },
+      required: ['project', 'title'],
+    },
+  },
+  {
+    name: 'artache_upsert_work',
+    description:
+      'Create or update an item in the Artache studio catalogue: a platform (a live product), an article, or another work (video, design, release). Pass a stable `key` (e.g. "overgame/launch-trailer") to update the same item later instead of creating duplicates. Fields left out keep their current value.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Stable id you choose, so later calls update this item.' },
+        kind: { type: 'string', enum: WORK_KINDS },
+        title: { type: 'string' },
+        status: { type: 'string', enum: WORK_STATUSES },
+        project: { type: 'string', description: 'Project slug, repo or name.' },
+        url: { type: 'string' },
+        summary: { type: 'string', description: 'One or two sentences.' },
+        body: { type: 'string', description: 'Markdown body, e.g. the article draft.' },
+        tags: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['title'],
+    },
+  },
+  {
+    name: 'artache_list_projects',
+    description: 'List the studio projects in Artache (slug, name, repo, status), most recently active first.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'artache_list_works',
+    description: 'List works in the Artache catalogue with their keys and statuses.',
+    inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: WORK_KINDS } } },
+  },
+  {
+    name: 'artache_recent_updates',
+    description: 'Read the latest updates posted to Artache, optionally for one project, to avoid repeating news.',
+    inputSchema: {
+      type: 'object',
+      properties: { project: { type: 'string' }, limit: { type: 'number', description: 'Default 10, max 50.' } },
+    },
+  },
+]
+
+async function mcpTool(owner: string, name: string, args: Record<string, unknown>) {
+  switch (name) {
+    case 'artache_post_update': {
+      const post = await createPost(owner, args, 'claude')
+      return `Posted "${post.title}"${post.project_slug ? ` to ${post.project_slug}` : ''}.`
+    }
+    case 'artache_upsert_work': {
+      const { work, created } = await upsertWork(owner, args)
+      return `${created ? 'Created' : 'Updated'} ${work.kind} "${work.title}" (${work.status})${work.external_key ? `, key ${work.external_key}` : ''}.`
+    }
+    case 'artache_list_projects':
+      return JSON.stringify(await listProjectsBrief(owner), null, 1)
+    case 'artache_list_works':
+      return JSON.stringify(await listWorksBrief(owner, str(args.kind)), null, 1)
+    case 'artache_recent_updates': {
+      const p = args.project ? await resolveProject(owner, args.project) : null
+      const rows = await listPosts(owner, p?.id ?? null, Math.min(Number(args.limit) || 10, 50))
+      return JSON.stringify(rows.map((r) => ({ project: r.project_slug, kind: r.kind, title: r.title, url: r.url, created_at: r.created_at })), null, 1)
+    }
+    default:
+      throw new HttpError(404, `unknown tool ${name}`)
+  }
+}
+
+type RpcRequest = { jsonrpc: '2.0'; id?: string | number | null; method: string; params?: Record<string, any> }
+
+async function mcpHandle(owner: string, msg: RpcRequest) {
+  const reply = (result: unknown) => ({ jsonrpc: '2.0', id: msg.id ?? null, result })
+  const fail = (code: number, message: string) => ({ jsonrpc: '2.0', id: msg.id ?? null, error: { code, message } })
+  if (msg.id === undefined) return null // notifications need no answer
+  switch (msg.method) {
+    case 'initialize':
+      return reply({
+        protocolVersion: msg.params?.protocolVersion ?? '2025-06-18',
+        capabilities: { tools: {} },
+        serverInfo: { name: 'artache', title: 'Artache', version: '1.0.0' },
+        instructions:
+          'Artache is the studio hub. After meaningful work, post a short update with artache_post_update; record platforms, articles and other works with artache_upsert_work.',
+      })
+    case 'ping':
+      return reply({})
+    case 'tools/list':
+      return reply({ tools: MCP_TOOLS })
+    case 'tools/call': {
+      try {
+        const text = await mcpTool(owner, String(msg.params?.name), msg.params?.arguments ?? {})
+        return reply({ content: [{ type: 'text', text }] })
+      } catch (err) {
+        if (err instanceof HttpError) return reply({ content: [{ type: 'text', text: err.message }], isError: true })
+        throw err
+      }
+    }
+    default:
+      return fail(-32601, `method not found: ${msg.method}`)
+  }
+}
+
+async function mcp(req: Request) {
+  if (req.method !== 'POST') return new Response(null, { status: 405, headers: { Allow: 'POST' } })
+  const owner = await tokenOwner(req)
+  const body = await req.json().catch(() => null)
+  if (!body) return json({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'parse error' } }, 400)
+  if (Array.isArray(body)) {
+    const out = (await Promise.all(body.map((m) => mcpHandle(owner, m)))).filter(Boolean)
+    return out.length ? json(out) : new Response(null, { status: 202 })
+  }
+  const out = await mcpHandle(owner, body)
+  return out ? json(out) : new Response(null, { status: 202 })
+}
+
 // Router ----------------------------------------------------------------------------------
 
 async function route(req: Request): Promise<Response> {
@@ -266,6 +517,8 @@ async function route(req: Request): Promise<Response> {
     return json({ ok: true }, 200, { 'Set-Cookie': `${COOKIE}=; Path=/; Max-Age=0` })
   }
   if (path === '/sync' && method === 'POST') return sync(req)
+  if (path === '/mcp') return mcp(req)
+  if (seg[0] === 'v1') return v1(req, seg.slice(1))
 
   const user = await requireUser(req)
   const sql = db()
@@ -359,7 +612,18 @@ async function route(req: Request): Promise<Response> {
     return json({ ok: true })
   }
 
-  // Sync tokens: the raw token is returned once; only its hash is stored.
+  // Updates feed
+  if (path === '/posts' && method === 'GET') {
+    const limit = Math.min(Number(url.searchParams.get('limit')) || 30, 200)
+    return json(await listPosts(owner, url.searchParams.get('project'), limit))
+  }
+  if (path === '/posts' && method === 'POST') return json(await createPost(owner, await req.json(), 'web'), 201)
+  if (seg[0] === 'posts' && seg[1] && method === 'DELETE') {
+    await sql`delete from posts where id = ${seg[1]} and owner = ${owner}`
+    return json({ ok: true })
+  }
+
+  // Access tokens: the raw token is returned once; only its hash is stored.
   if (path === '/tokens' && method === 'GET') {
     return json(await sql`
       select id, label, token_hint, last_used_at, revoked_at, created_at

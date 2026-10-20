@@ -1,4 +1,4 @@
-import type { Machine, Project, Session, SyncToken, Work } from './types'
+import type { Machine, Post, Project, Session, SyncToken, Work } from './types'
 
 const ago = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString()
 
@@ -53,4 +53,11 @@ export const demoWorks: Work[] = [
 
 export const demoTokens: SyncToken[] = [
   { id: 't1', label: 'studio-mac', token_hint: 'art_…9f2c', last_used_at: ago(0.3), revoked_at: null, created_at: ago(48) },
+]
+
+export const demoPosts: Post[] = [
+  { id: 'u1', project_id: 'p2', project_slug: 'overgame', project_name: 'Overgame', kind: 'release', title: 'Matchmaking is live', body: 'Players are now paired by skill rating within 10 seconds. The queue falls back to wider ranges after 30 seconds so nobody waits forever.', url: 'https://github.com/rectornero/overgame/pull/42', source: 'claude', author_label: 'Claude on studio-mac', created_at: ago(0.8) },
+  { id: 'u2', project_id: 'p1', project_slug: 'artache', project_name: 'Artache', kind: 'milestone', title: 'Claude projects can now post here', body: 'Any Claude Code session with the Artache connector can publish updates and catalogue works on its own.', url: null, source: 'claude', author_label: 'Claude', created_at: ago(2) },
+  { id: 'u3', project_id: 'p4', project_slug: 'deadend', project_name: 'Deadend', kind: 'question', title: 'Autosave every 30s or on every edit?', body: 'Every edit is safer but writes ~40 times a minute while dragging. Leaning to debounced 2s.', url: null, source: 'claude', author_label: 'Claude on travel-laptop', created_at: ago(5) },
+  { id: 'u4', project_id: 'p3', project_slug: 'novaula', project_name: 'Novaula', kind: 'update', title: 'Course page redesign merged', body: null, url: null, source: 'cli', author_label: 'studio-mac', created_at: ago(26) },
 ]

@@ -1,15 +1,16 @@
-import { demoMachines, demoProjects, demoSessions, demoTokens, demoWorks } from './demo'
+import { demoMachines, demoPosts, demoProjects, demoSessions, demoTokens, demoWorks } from './demo'
 import { isDemo } from './mode'
-import type { Machine, Project, Session, SyncToken, Work, WorkKind } from './types'
+import type { Machine, Post, PostKind, Project, Session, SyncToken, Work, WorkKind } from './types'
 
-// One data layer for both modes: the Artache API (Netlify Functions + Netlify
-// DB) when configured, in-memory sample data otherwise.
+// One data layer for both modes: the Artache API (Netlify Functions + Neon)
+// when configured, in-memory sample data otherwise.
 const mem = {
   projects: [...demoProjects],
   sessions: [...demoSessions],
   machines: [...demoMachines],
   works: [...demoWorks],
   tokens: [...demoTokens],
+  posts: [...demoPosts],
 }
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -99,6 +100,38 @@ export async function deleteWork(id: string): Promise<void> {
     return
   }
   await call(`/works/${id}`, { method: 'DELETE' })
+}
+
+export async function listPosts(opts: { projectId?: string; limit?: number } = {}): Promise<Post[]> {
+  const limit = opts.limit ?? 30
+  if (isDemo) {
+    return mem.posts.filter((p) => !opts.projectId || p.project_id === opts.projectId)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, limit)
+  }
+  const q = new URLSearchParams({ limit: String(limit) })
+  if (opts.projectId) q.set('project', opts.projectId)
+  return call(`/posts?${q}`)
+}
+
+export async function createPost(p: { project_id: string | null; kind: PostKind; title: string; body?: string; url?: string }): Promise<Post> {
+  if (isDemo) {
+    const project = mem.projects.find((x) => x.id === p.project_id)
+    const created: Post = {
+      id: crypto.randomUUID(), body: null, url: null, ...p, project_slug: project?.slug ?? null,
+      project_name: project?.name ?? null, source: 'web', author_label: null, created_at: new Date().toISOString(),
+    }
+    mem.posts.unshift(created)
+    return created
+  }
+  return post('/posts', p)
+}
+
+export async function deletePost(id: string): Promise<void> {
+  if (isDemo) {
+    mem.posts = mem.posts.filter((p) => p.id !== id)
+    return
+  }
+  await call(`/posts/${id}`, { method: 'DELETE' })
 }
 
 export async function listTokens(): Promise<SyncToken[]> {

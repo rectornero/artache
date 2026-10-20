@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Feed, PostComposer } from '../components/Feed'
 import { Icon } from '../components/Icon'
-import { ErrorNote, Loading, SessionRow, Status } from '../components/ui'
-import { listMachines, listProjects, listSessions, listWorks } from '../lib/api'
+import { Empty, ErrorNote, Loading, SessionRow, Status } from '../components/ui'
+import { listMachines, listPosts, listProjects, listSessions, listWorks } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { timeAgo, useAsync } from '../lib/hooks'
 
@@ -12,12 +14,13 @@ function greeting() {
 
 export function Overview() {
   const { name } = useAuth()
-  const { data, error, loading } = useAsync(() =>
-    Promise.all([listProjects(), listSessions({ limit: 8 }), listMachines(), listWorks()]),
+  const [composing, setComposing] = useState(false)
+  const { data, error, loading, reload } = useAsync(() =>
+    Promise.all([listProjects(), listSessions({ limit: 8 }), listMachines(), listWorks(), listPosts({ limit: 6 })]),
   )
   if (error) return <ErrorNote message={error} />
   if (loading || !data) return <Loading />
-  const [projects, sessions, machines, works] = data
+  const [projects, sessions, machines, works, posts] = data
 
   const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString()
   const recentSessions = sessions.filter((s) => (s.last_activity_at ?? '') > weekAgo).length
@@ -47,17 +50,34 @@ export function Overview() {
       </section>
 
       <div className="grid-2">
-        <section className="panel">
-          <header className="panel-head">
-            <h2>Recent sessions</h2>
-            <Link to="/sessions" className="link">See all</Link>
-          </header>
-          <ul className="session-list">
-            {sessions.slice(0, 6).map((s) => (
-              <SessionRow key={s.id} s={s} project={byId.get(s.project_id ?? '')} />
-            ))}
-          </ul>
-        </section>
+        <div className="stack">
+          <section className="panel">
+            <header className="panel-head">
+              <h2>Updates</h2>
+              <button className="link link-btn" onClick={() => setComposing(true)}>New update</button>
+            </header>
+            {posts.length ? (
+              <Feed posts={posts} onChange={reload} />
+            ) : (
+              <Empty>
+                Nothing posted yet. Connect Claude Code in <Link to="/settings" className="link">Settings</Link> and
+                your projects will post their progress here.
+              </Empty>
+            )}
+          </section>
+
+          <section className="panel">
+            <header className="panel-head">
+              <h2>Recent sessions</h2>
+              <Link to="/sessions" className="link">See all</Link>
+            </header>
+            <ul className="session-list">
+              {sessions.slice(0, 6).map((s) => (
+                <SessionRow key={s.id} s={s} project={byId.get(s.project_id ?? '')} />
+              ))}
+            </ul>
+          </section>
+        </div>
 
         <div className="stack">
           <section className="panel">
@@ -95,6 +115,7 @@ export function Overview() {
           </section>
         </div>
       </div>
+      {composing && <PostComposer projects={projects} onClose={() => setComposing(false)} onSaved={reload} />}
     </div>
   )
 }

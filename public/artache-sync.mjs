@@ -9,6 +9,10 @@
 //   ARTACHE_URL=https://<your-site>.netlify.app ARTACHE_TOKEN=art_... node artache-sync.mjs
 //   node artache-sync.mjs --dry-run        # print what would be sent
 //
+// It can also post an update to the studio feed (from a script, a CI job or a
+// Claude Code hook). The project defaults to the current folder's GitHub repo:
+//   node artache-sync.mjs post "Shipped the new editor" --body "..." --kind release --url https://...
+//
 // Config can also live in ~/.artache.json: { "url": "...", "token": "art_..." }
 
 import { execFileSync } from "node:child_process";
@@ -16,8 +20,13 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir, hostname, platform } from "node:os";
 import { basename, join } from "node:path";
 
-const args = new Set(process.argv.slice(2));
-const dryRun = args.has("--dry-run");
+const argv = process.argv.slice(2);
+const dryRun = argv.includes("--dry-run");
+
+function flag(name) {
+  const i = argv.indexOf(`--${name}`);
+  return i >= 0 ? argv[i + 1] : undefined;
+}
 
 function loadConfig() {
   const file = join(homedir(), ".artache.json");
@@ -117,8 +126,51 @@ function collect(claudeDir) {
   return { projects, sessions };
 }
 
+function requireConfig(cfg) {
+  if (!cfg.url || !cfg.token) {
+    console.error("Set ARTACHE_URL and ARTACHE_TOKEN, or create ~/.artache.json. Get both from Artache > Settings.");
+    process.exit(1);
+  }
+}
+
+async function send(cfg, path, payload) {
+  const res = await fetch(`${cfg.url.replace(/\/$/, "")}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json", "X-Artache-Source": "cli" },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    console.error(`Artache said ${res.status}: ${body.error ?? res.statusText}`);
+    process.exit(1);
+  }
+  return body;
+}
+
+async function post(cfg) {
+  const title = argv[1] && !argv[1].startsWith("--") ? argv[1] : flag("title");
+  if (!title) {
+    console.error('Usage: artache-sync.mjs post "Title" [--body text] [--project slug|owner/repo] [--kind update|milestone|release|note|question] [--url link]');
+    process.exit(1);
+  }
+  const cwd = process.cwd();
+  const payload = {
+    title,
+    body: flag("body"),
+    project: flag("project") ?? repoFor(cwd) ?? basename(cwd),
+    kind: flag("kind"),
+    url: flag("url"),
+    author: `${cfg.machine}`,
+  };
+  if (dryRun) return console.log(JSON.stringify(payload, null, 2));
+  requireConfig(cfg);
+  const body = await send(cfg, "/api/v1/posts", payload);
+  console.log(`Posted "${body.title}"${body.project_slug ? ` to ${body.project_slug}` : ""}.`);
+}
+
 async function main() {
   const cfg = loadConfig();
+  if (argv[0] === "post") return post(cfg);
   const { projects, sessions } = collect(cfg.claudeDir);
   const payload = { machine: { name: cfg.machine, platform: platform() }, projects, sessions };
 
@@ -127,21 +179,8 @@ async function main() {
     console.log(`\n${projects.length} projects, ${sessions.length} sessions (showing 5).`);
     return;
   }
-  if (!cfg.url || !cfg.token) {
-    console.error("Set ARTACHE_URL and ARTACHE_TOKEN, or create ~/.artache.json. Get both from Artache > Settings.");
-    process.exit(1);
-  }
-
-  const res = await fetch(`${cfg.url.replace(/\/$/, "")}/api/sync`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    console.error(`Sync failed (${res.status}): ${body.error ?? res.statusText}`);
-    process.exit(1);
-  }
+  requireConfig(cfg);
+  const body = await send(cfg, "/api/sync", payload);
   console.log(`Synced ${body.sessions} sessions across ${body.projects} projects from ${body.machine}.`);
 }
 
