@@ -10,3 +10,7 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Shown as a form field by the "Deploy to Netlify" setup link.
+[template.environment]
+  DATABASE_URL = "Neon pooled connection string (postgresql://...)"
