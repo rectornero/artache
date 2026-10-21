@@ -17,7 +17,7 @@
 // As a Claude Code SessionStart hook, its output lands in Claude's context:
 //   node artache-sync.mjs inbox [--project owner/repo]
 //
-// Config can also live in ~/.artache.json: { "url": "...", "token": "art_..." }
+// Config can also live in ~/.artache.json: { "token": "art_..." } (url defaults to https://artache.netlify.app)
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -36,7 +36,7 @@ function loadConfig() {
   const file = join(homedir(), ".artache.json");
   const fromFile = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
   return {
-    url: process.env.ARTACHE_URL ?? fromFile.url,
+    url: process.env.ARTACHE_URL ?? fromFile.url ?? "https://artache.netlify.app",
     token: process.env.ARTACHE_TOKEN ?? fromFile.token,
     machine: process.env.ARTACHE_MACHINE ?? fromFile.machine ?? hostname(),
     claudeDir: process.env.CLAUDE_CONFIG_DIR ?? fromFile.claudeDir ?? join(homedir(), ".claude"),
@@ -132,7 +132,7 @@ function collect(claudeDir) {
 
 function requireConfig(cfg) {
   if (!cfg.url || !cfg.token) {
-    console.error("Set ARTACHE_URL and ARTACHE_TOKEN, or create ~/.artache.json. Get both from Artache > Settings.");
+    console.error("Set ARTACHE_TOKEN, or create ~/.artache.json with { \"token\": \"art_...\" }. Get a token from Artache > Settings.");
     process.exit(1);
   }
 }
