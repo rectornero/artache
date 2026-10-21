@@ -255,9 +255,11 @@ async function sync(req: Request) {
 const POST_KINDS = ['update', 'milestone', 'release', 'note', 'question']
 type Source = 'claude' | 'cli' | 'web'
 
+const isUuid = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+
 // Finds a project by slug, GitHub repo ("owner/name") or name, creating it when
 // it doesn't exist yet so a brand-new Claude project can post straight away.
-async function resolveProject(owner: string, ref: unknown) {
+async function resolveProject(owner: string, ref: unknown, create = true) {
   const text = str(ref)
   if (!text) return null
   const sql = db()
@@ -266,7 +268,7 @@ async function resolveProject(owner: string, ref: unknown) {
     select id, slug from projects
     where owner = ${owner} and (slug = ${slug} or lower(repo_full_name) = lower(${text}) or lower(name) = lower(${text}))
     order by (slug = ${slug}) desc limit 1`
-  if (found) return found as { id: string; slug: string }
+  if (found || !create) return (found as { id: string; slug: string } | undefined) ?? null
   const repo = /^[\w.-]+\/[\w.-]+$/.test(text) ? text : null
   const [row] = await sql`
     insert into projects (owner, name, slug, repo_full_name, last_activity_at)
@@ -276,20 +278,37 @@ async function resolveProject(owner: string, ref: unknown) {
   return row as { id: string; slug: string }
 }
 
+async function ownProject(owner: string, id: unknown) {
+  if (!isUuid(id)) throw new HttpError(400, 'unknown project')
+  const [row] = await db()`select id, slug from projects where id = ${id} and owner = ${owner}`
+  if (!row) throw new HttpError(400, 'unknown project')
+  return row as { id: string; slug: string }
+}
+
+async function ownBrief(owner: string, id: unknown) {
+  if (!isUuid(id)) throw new HttpError(404, 'brief not found')
+  const [row] = await db()`select * from briefs where id = ${id} and owner = ${owner}`
+  if (!row) throw new HttpError(404, 'brief not found')
+  return row as Record<string, any>
+}
+
 async function createPost(owner: string, b: Record<string, unknown>, source: Source) {
   const title = str(b.title)
   if (!title) throw new HttpError(400, 'title is required')
   const sql = db()
+  const brief = b.brief_id ? await ownBrief(owner, b.brief_id) : null
   const project = b.project_id
-    ? ((await sql`select id, slug from projects where id = ${String(b.project_id)} and owner = ${owner}`)[0] as { id: string; slug: string } | undefined) ?? null
-    : await resolveProject(owner, b.project)
-  if (b.project_id && !project) throw new HttpError(400, 'unknown project')
+    ? await ownProject(owner, b.project_id)
+    : brief && !b.project
+      ? await ownProject(owner, brief.project_id)
+      : await resolveProject(owner, b.project)
   const [row] = await sql`
-    insert into posts (owner, project_id, kind, title, body, url, source, author_label, session_external_id)
+    insert into posts (owner, project_id, kind, title, body, url, source, author_label, session_external_id, brief_id)
     values (${owner}, ${project?.id ?? null}, ${oneOf(b.kind, POST_KINDS, 'update')}, ${title.slice(0, 300)},
       ${str(b.body)?.slice(0, 20000) ?? null}, ${str(b.url)}, ${source}, ${str(b.author)?.slice(0, 100) ?? null},
-      ${str(b.session_id)})
+      ${str(b.session_id)}, ${brief?.id ?? null})
     returning *`
+  if (brief) await sql`update briefs set updated_at = now() where id = ${brief.id}`
   if (project) await sql`update projects set last_activity_at = greatest(last_activity_at, now()) where id = ${project.id}`
   return Object.assign(row as Record<string, any>, { project_slug: project?.slug ?? null })
 }
@@ -334,12 +353,105 @@ const listWorksBrief = (owner: string, kind: string | null) => db()`
   order by w.updated_at desc limit 200`
 
 const listPosts = (owner: string, projectId: string | null, limit: number) => db()`
-  select po.*, p.slug as project_slug, p.name as project_name
-  from posts po left join projects p on p.id = po.project_id
-  where po.owner = ${owner} and (${projectId}::uuid is null or po.project_id = ${projectId})
+  select po.*, p.slug as project_slug, p.name as project_name, b.title as brief_title,
+    coalesce((select json_agg(json_build_object('id', r.id, 'source', r.source, 'author', r.author_label, 'body', r.body, 'created_at', r.created_at) order by r.created_at)
+      from replies r where r.post_id = po.id), '[]'::json) as replies
+  from posts po left join projects p on p.id = po.project_id left join briefs b on b.id = po.brief_id
+  where po.owner = ${owner} and (${isUuid(projectId) ? projectId : null}::uuid is null or po.project_id = ${isUuid(projectId) ? projectId : null})
   order by po.created_at desc limit ${limit}`
 
-// Public v1 API for tokens: /api/v1/projects, /api/v1/posts, /api/v1/works
+// Briefs: the studio hands work to a project; the project's Claude reports back --------
+
+const BRIEF_PRIORITIES = ['low', 'normal', 'high', 'urgent']
+const BRIEF_STATUSES = ['open', 'accepted', 'in_progress', 'blocked', 'done', 'dropped']
+const day = (v: unknown) => {
+  if (v instanceof Date) return v.toISOString().slice(0, 10)
+  const s = str(v)
+  if (s && !/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new HttpError(400, 'due_on must be YYYY-MM-DD')
+  return s
+}
+const withDay = <T extends Record<string, any>>(row: T) => ({ ...row, due_on: day(row.due_on) })
+
+async function saveBrief(owner: string, b: Record<string, unknown>, source: Source) {
+  const sql = db()
+  if (b.id) {
+    const cur = await ownBrief(owner, b.id)
+    const pick = (k: string) => (b[k] !== undefined ? str(b[k]) : cur[k])
+    const status = oneOf(b.status, BRIEF_STATUSES, cur.status)
+    const closed = status === 'done' || status === 'dropped'
+    const [row] = await sql`
+      update briefs set title = ${pick('title') ?? cur.title}, body = ${pick('body')}, priority = ${oneOf(b.priority, BRIEF_PRIORITIES, cur.priority)},
+        status = ${status}, due_on = ${b.due_on !== undefined ? day(b.due_on) : day(cur.due_on)}, result_url = ${pick('result_url')},
+        closed_at = ${closed ? (cur.closed_at ?? new Date()) : null}, updated_at = now()
+      where id = ${cur.id} returning *`
+    if (str(b.reply)) await addReply(owner, { brief_id: cur.id, body: b.reply, author: b.author }, source)
+    return withDay(row)
+  }
+  const title = str(b.title)
+  if (!title) throw new HttpError(400, 'title is required')
+  const project = b.project_id ? await ownProject(owner, b.project_id) : await resolveProject(owner, b.project)
+  if (!project) throw new HttpError(400, 'project is required')
+  const [row] = await sql`
+    insert into briefs (owner, project_id, title, body, priority, due_on, source)
+    values (${owner}, ${project.id}, ${title.slice(0, 300)}, ${str(b.body)?.slice(0, 20000) ?? null},
+      ${oneOf(b.priority, BRIEF_PRIORITIES, 'normal')}, ${day(b.due_on)}, ${source})
+    returning *`
+  return { ...withDay(row), project_slug: project.slug }
+}
+
+async function addReply(owner: string, b: Record<string, unknown>, source: Source) {
+  const body = str(b.body)
+  if (!body) throw new HttpError(400, 'body is required')
+  const sql = db()
+  let briefId: string | null = null
+  let postId: string | null = null
+  if (b.brief_id) briefId = (await ownBrief(owner, b.brief_id)).id
+  else if (isUuid(b.post_id) && (await sql`select 1 from posts where id = ${b.post_id} and owner = ${owner}`).length) postId = b.post_id
+  else throw new HttpError(404, 'nothing to reply to: pass a brief_id or post_id')
+  const [row] = await sql`
+    insert into replies (owner, brief_id, post_id, body, source, author_label)
+    values (${owner}, ${briefId}, ${postId}, ${body.slice(0, 20000)}, ${source}, ${str(b.author)?.slice(0, 100) ?? null})
+    returning *`
+  if (briefId) await sql`update briefs set updated_at = now() where id = ${briefId}`
+  return row
+}
+
+const listBriefs = async (owner: string, projectId: string | null, active: boolean) =>
+  (await db()`
+    select b.*, p.slug as project_slug, p.name as project_name, p.color as project_color,
+      coalesce((select json_agg(json_build_object('id', r.id, 'source', r.source, 'author', r.author_label, 'body', r.body, 'created_at', r.created_at) order by r.created_at)
+        from replies r where r.brief_id = b.id), '[]'::json) as replies,
+      coalesce((select json_agg(json_build_object('id', po.id, 'title', po.title, 'url', po.url, 'kind', po.kind, 'created_at', po.created_at) order by po.created_at)
+        from posts po where po.brief_id = b.id), '[]'::json) as updates
+    from briefs b join projects p on p.id = b.project_id
+    where b.owner = ${owner}
+      and (${isUuid(projectId) ? projectId : null}::uuid is null or b.project_id = ${isUuid(projectId) ? projectId : null})
+      and (${!active} or b.status in ('open', 'accepted', 'in_progress', 'blocked'))
+    order by (b.status in ('done', 'dropped')), case b.priority when 'urgent' then 0 when 'high' then 1 when 'normal' then 2 else 3 end,
+      b.due_on nulls last, b.created_at desc
+    limit 200`).map(withDay)
+
+// What a project's Claude should look at when a session starts: active briefs,
+// and updates the studio has replied to since the project last spoke.
+async function inbox(owner: string, ref: unknown) {
+  const project = await resolveProject(owner, ref, false)
+  if (!project) return { project: null, briefs: [], replies: [] }
+  const briefs = (await listBriefs(owner, project.id, true)).map((b) => ({
+    id: b.id, title: b.title, body: b.body, priority: b.priority, status: b.status, due_on: b.due_on,
+    created_at: b.created_at, replies: b.replies, updates: b.updates,
+  }))
+  const replies = await db()`
+    select po.id as post_id, po.kind, po.title, po.created_at,
+      (select json_agg(json_build_object('source', r.source, 'author', r.author_label, 'body', r.body, 'created_at', r.created_at) order by r.created_at)
+        from replies r where r.post_id = po.id) as replies
+    from posts po
+    where po.owner = ${owner} and po.project_id = ${project.id}
+      and (select r.source from replies r where r.post_id = po.id order by r.created_at desc limit 1) = 'web'
+    order by po.created_at desc limit 20`
+  return { project: project.slug, briefs, replies }
+}
+
+// Public v1 API for tokens: /api/v1/projects, posts, works, briefs, replies, inbox
 async function v1(req: Request, seg: string[]) {
   const owner = await tokenOwner(req)
   const url = new URL(req.url)
@@ -359,6 +471,18 @@ async function v1(req: Request, seg: string[]) {
     return json(work, created ? 201 : 200)
   }
   if (resource === 'works' && req.method === 'GET') return json(await listWorksBrief(owner, url.searchParams.get('kind')))
+  if (resource === 'inbox' && req.method === 'GET') return json(await inbox(owner, url.searchParams.get('project')))
+  if (resource === 'briefs' && req.method === 'GET') {
+    const project = url.searchParams.get('project')
+    const p = project ? await resolveProject(owner, project, false) : null
+    if (project && !p) return json([])
+    return json(await listBriefs(owner, p?.id ?? null, url.searchParams.get('status') !== 'all'))
+  }
+  if (resource === 'briefs' && req.method === 'POST') {
+    const b = await body()
+    return json(await saveBrief(owner, { ...b, id: seg[1] ?? b.id }, source), b.id || seg[1] ? 200 : 201)
+  }
+  if (resource === 'replies' && req.method === 'POST') return json(await addReply(owner, await body(), source), 201)
   throw new HttpError(404, 'not found')
 }
 
@@ -380,6 +504,7 @@ const MCP_TOOLS = [
         kind: { type: 'string', enum: POST_KINDS, description: 'Default "update".' },
         url: { type: 'string', description: 'Link to a PR, deploy, doc or release.' },
         session_id: { type: 'string', description: 'Claude Code session id, if known.' },
+        brief_id: { type: 'string', description: 'The brief this update delivers or reports on, from artache_inbox.' },
         author: { type: 'string', description: 'Who is posting, e.g. "Claude on studio-mac".' },
       },
       required: ['project', 'title'],
@@ -403,6 +528,62 @@ const MCP_TOOLS = [
         tags: { type: 'array', items: { type: 'string' } },
       },
       required: ['title'],
+    },
+  },
+  {
+    name: 'artache_inbox',
+    description:
+      "Check what the studio has asked of this project. Call it at the start of a session and before finishing. Returns active briefs (work the studio assigned, with priority, due date and the conversation so far) and the project's posted updates the studio has replied to. Act on them, then report back with artache_update_brief or artache_reply.",
+    inputSchema: {
+      type: 'object',
+      properties: { project: { type: 'string', description: 'This project: GitHub repo ("owner/name"), slug or folder name.' } },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'artache_update_brief',
+    description:
+      'Report on a brief from artache_inbox: change its status (accepted when you take it, in_progress, blocked with the reason in reply, done with result_url, dropped with why) and optionally leave a reply for the studio.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Brief id from artache_inbox.' },
+        status: { type: 'string', enum: BRIEF_STATUSES },
+        reply: { type: 'string', description: 'Message to the studio, Markdown.' },
+        result_url: { type: 'string', description: 'Link to the result: PR, deploy, doc.' },
+        author: { type: 'string', description: 'Who is replying, e.g. "Claude on studio-mac".' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'artache_reply',
+    description: "Answer the studio in a conversation: on a brief (brief_id) or on one of this project's updates the studio replied to (post_id).",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        brief_id: { type: 'string' },
+        post_id: { type: 'string' },
+        body: { type: 'string', description: 'Markdown.' },
+        author: { type: 'string' },
+      },
+      required: ['body'],
+    },
+  },
+  {
+    name: 'artache_create_brief',
+    description:
+      'Write a brief for a project: work the studio wants done there. The project picks it up from its inbox in its next session. Be specific about the outcome wanted and how to tell it is done.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Target project: slug, GitHub repo or name.' },
+        title: { type: 'string', description: 'The ask, in one line.' },
+        body: { type: 'string', description: 'Markdown: context, what done looks like, constraints.' },
+        priority: { type: 'string', enum: BRIEF_PRIORITIES, description: 'Default "normal".' },
+        due_on: { type: 'string', description: 'YYYY-MM-DD, optional.' },
+      },
+      required: ['project', 'title'],
     },
   },
   {
@@ -439,6 +620,24 @@ async function mcpTool(owner: string, name: string, args: Record<string, unknown
       return JSON.stringify(await listProjectsBrief(owner), null, 1)
     case 'artache_list_works':
       return JSON.stringify(await listWorksBrief(owner, str(args.kind)), null, 1)
+    case 'artache_inbox': {
+      const box = await inbox(owner, args.project)
+      if (!box.project) return `No project called "${str(args.project) ?? ''}" in Artache yet, so nothing is waiting. It is created on its first update.`
+      if (!box.briefs.length && !box.replies.length) return `Nothing waiting for ${box.project}.`
+      return `${box.briefs.length} active brief(s) and ${box.replies.length} update(s) with studio replies for ${box.project}:\n` + JSON.stringify(box, null, 1)
+    }
+    case 'artache_update_brief': {
+      const brief = await saveBrief(owner, { id: args.id, status: args.status, reply: args.reply, result_url: args.result_url, author: args.author }, 'claude')
+      return `Brief "${brief.title}" is ${brief.status}${str(args.reply) ? ', reply sent' : ''}.`
+    }
+    case 'artache_reply': {
+      await addReply(owner, args, 'claude')
+      return 'Reply sent to the studio.'
+    }
+    case 'artache_create_brief': {
+      const brief = await saveBrief(owner, { project: args.project, title: args.title, body: args.body, priority: args.priority, due_on: args.due_on }, 'claude')
+      return `Brief "${brief.title}" sent to ${brief.project_slug} (${brief.priority}).`
+    }
     case 'artache_recent_updates': {
       const p = args.project ? await resolveProject(owner, args.project) : null
       const rows = await listPosts(owner, p?.id ?? null, Math.min(Number(args.limit) || 10, 50))
@@ -462,7 +661,7 @@ async function mcpHandle(owner: string, msg: RpcRequest) {
         capabilities: { tools: {} },
         serverInfo: { name: 'artache', title: 'Artache', version: '1.0.0' },
         instructions:
-          'Artache is the studio hub. After meaningful work, post a short update with artache_post_update; record platforms, articles and other works with artache_upsert_work.',
+          'Artache is the studio hub. At the start of a session, check artache_inbox for briefs and studio replies addressed to this project and act on them. After meaningful work, post a short update with artache_post_update (with brief_id when it delivers a brief) and report on briefs with artache_update_brief. Record platforms, articles and other works with artache_upsert_work.',
       })
     case 'ping':
       return reply({})
@@ -622,6 +821,20 @@ async function route(req: Request): Promise<Response> {
     await sql`delete from posts where id = ${seg[1]} and owner = ${owner}`
     return json({ ok: true })
   }
+
+  // Briefs and replies
+  if (path === '/briefs' && method === 'GET') {
+    return json(await listBriefs(owner, url.searchParams.get('project'), url.searchParams.get('status') === 'active'))
+  }
+  if (path === '/briefs' && method === 'POST') {
+    const b = await req.json()
+    return json(await saveBrief(owner, b, 'web'), b.id ? 200 : 201)
+  }
+  if (seg[0] === 'briefs' && seg[1] && method === 'DELETE') {
+    if (isUuid(seg[1])) await sql`delete from briefs where id = ${seg[1]} and owner = ${owner}`
+    return json({ ok: true })
+  }
+  if (path === '/replies' && method === 'POST') return json(await addReply(owner, await req.json(), 'web'), 201)
 
   // Access tokens: the raw token is returned once; only its hash is stored.
   if (path === '/tokens' && method === 'GET') {

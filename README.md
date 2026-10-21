@@ -30,10 +30,14 @@ node artache-sync.mjs --dry-run    # see what would be sent
 
 Only metadata (titles, folders, branches, timestamps) is sent. Conversations stay on the computer.
 
-## Let Claude Code post updates
+## Briefs and updates between the studio and its projects
 
-Settings has a "Let Claude post here" section: one `claude mcp add` command per computer, a permission line and a
-CLAUDE.md snippet. After that, every project built with Claude Code posts its progress to the Updates feed on its own.
+Write a **brief** for a project in Artache (Briefs page, or a project's page) and that project's Claude picks it up from
+its inbox at the start of its next session, reports status and replies there. Projects post their progress to the
+Updates feed, and you can reply on any update.
+
+Settings has a "Connect Claude Code" section: one `claude mcp add` command per computer, a permission line and a
+CLAUDE.md snippet.
 Scripts can post too: `node artache-sync.mjs post "Shipped it" --kind release`.
 
 ## Stack

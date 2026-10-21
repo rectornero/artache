@@ -75,5 +75,39 @@ export type Post = {
   url: string | null
   source: 'claude' | 'cli' | 'web'
   author_label: string | null
+  brief_id: string | null
+  brief_title: string | null
+  replies: Reply[]
   created_at: string
+}
+
+export type Reply = {
+  id: string
+  source: 'claude' | 'cli' | 'web'
+  author: string | null
+  body: string
+  created_at: string
+}
+
+export type BriefStatus = 'open' | 'accepted' | 'in_progress' | 'blocked' | 'done' | 'dropped'
+export type BriefPriority = 'low' | 'normal' | 'high' | 'urgent'
+
+export type Brief = {
+  id: string
+  project_id: string
+  project_slug: string
+  project_name: string
+  project_color: string | null
+  title: string
+  body: string | null
+  priority: BriefPriority
+  status: BriefStatus
+  due_on: string | null
+  source: 'claude' | 'cli' | 'web'
+  result_url: string | null
+  replies: Reply[]
+  updates: { id: string; title: string; url: string | null; kind: PostKind; created_at: string }[]
+  created_at: string
+  updated_at: string
+  closed_at: string | null
 }

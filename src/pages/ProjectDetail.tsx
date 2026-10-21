@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { BriefComposer, BriefList } from '../components/Briefs'
 import { Feed, PostComposer } from '../components/Feed'
 import { Icon } from '../components/Icon'
 import { Empty, ErrorNote, Loading, SessionRow, Status } from '../components/ui'
-import { getProject, listPosts, listSessions, listWorks, saveProject } from '../lib/api'
+import { getProject, listBriefs, listPosts, listSessions, listWorks, saveProject } from '../lib/api'
 import { timeAgo, useAsync } from '../lib/hooks'
 import type { ProjectStatus } from '../lib/types'
 
@@ -12,21 +13,23 @@ const statuses: ProjectStatus[] = ['idea', 'active', 'paused', 'shipped', 'archi
 export function ProjectDetail() {
   const { slug = '' } = useParams()
   const [composing, setComposing] = useState(false)
+  const [briefing, setBriefing] = useState(false)
   const { data, error, loading, reload } = useAsync(async () => {
     const project = await getProject(slug)
     if (!project) return null
-    const [sessions, works, posts] = await Promise.all([
+    const [sessions, works, posts, briefs] = await Promise.all([
       listSessions({ projectId: project.id, limit: 200 }),
       listWorks(),
       listPosts({ projectId: project.id, limit: 20 }),
+      listBriefs({ projectId: project.id }),
     ])
-    return { project, sessions, posts, works: works.filter((w) => w.project_id === project.id) }
+    return { project, sessions, posts, briefs, works: works.filter((w) => w.project_id === project.id) }
   }, [slug])
 
   if (error) return <ErrorNote message={error} />
   if (loading) return <Loading />
   if (!data) return <Empty>Project not found. <Link to="/projects">Back to projects</Link></Empty>
-  const { project: p, sessions, works, posts } = data
+  const { project: p, sessions, works, posts, briefs } = data
   const messages = sessions.reduce((n, s) => n + s.message_count, 0)
 
   async function setStatus(status: ProjectStatus) {
@@ -65,6 +68,19 @@ export function ProjectDetail() {
         <div className="stat"><span className="stat-value small">{timeAgo(p.last_activity_at)}</span><span className="stat-label">Last activity</span></div>
       </section>
 
+      <div className="grid-2">
+      <section className="panel">
+        <header className="panel-head">
+          <h2>Briefs</h2>
+          <button className="link link-btn" onClick={() => setBriefing(true)}>New brief</button>
+        </header>
+        {briefs.length ? (
+          <BriefList briefs={briefs} showProject={false} onChange={reload} />
+        ) : (
+          <Empty>No briefs yet. Write one and this project's Claude picks it up at the start of its next session.</Empty>
+        )}
+      </section>
+
       <section className="panel">
         <header className="panel-head">
           <h2>Updates</h2>
@@ -76,6 +92,7 @@ export function ProjectDetail() {
           <Empty>No updates yet. Claude Code posts here when it finishes meaningful work on this project.</Empty>
         )}
       </section>
+      </div>
 
       <div className="grid-2">
         <section className="panel">
@@ -107,6 +124,9 @@ export function ProjectDetail() {
           )}
         </section>
       </div>
+      {briefing && (
+        <BriefComposer projects={[p]} projectId={p.id} onClose={() => setBriefing(false)} onSaved={reload} />
+      )}
       {composing && (
         <PostComposer projects={[p]} projectId={p.id} onClose={() => setComposing(false)} onSaved={reload} />
       )}

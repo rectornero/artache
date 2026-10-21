@@ -13,6 +13,10 @@
 // Claude Code hook). The project defaults to the current folder's GitHub repo:
 //   node artache-sync.mjs post "Shipped the new editor" --body "..." --kind release --url https://...
 //
+// And list what the studio is waiting on from this project (briefs and replies).
+// As a Claude Code SessionStart hook, its output lands in Claude's context:
+//   node artache-sync.mjs inbox [--project owner/repo]
+//
 // Config can also live in ~/.artache.json: { "url": "...", "token": "art_..." }
 
 import { execFileSync } from "node:child_process";
@@ -168,9 +172,34 @@ async function post(cfg) {
   console.log(`Posted "${body.title}"${body.project_slug ? ` to ${body.project_slug}` : ""}.`);
 }
 
+// Prints nothing when there is nothing to do, so it stays quiet as a hook.
+async function inbox(cfg) {
+  if (!cfg.url || !cfg.token) return;
+  const cwd = process.cwd();
+  const project = flag("project") ?? repoFor(cwd) ?? basename(cwd);
+  const res = await fetch(`${cfg.url.replace(/\/$/, "")}/api/v1/inbox?project=${encodeURIComponent(project)}`, {
+    headers: { Authorization: `Bearer ${cfg.token}` },
+  }).catch(() => null);
+  if (!res?.ok) return;
+  const box = await res.json();
+  if (!box.briefs?.length && !box.replies?.length) return;
+  const lines = [`Artache: the studio is waiting on ${box.project}. Handle these with the artache_* tools (artache_update_brief, artache_reply).`];
+  for (const b of box.briefs) {
+    lines.push("", `Brief ${b.id} [${b.priority}, ${b.status}${b.due_on ? `, due ${b.due_on}` : ""}]: ${b.title}`);
+    if (b.body) lines.push(b.body);
+    for (const r of b.replies) lines.push(`  ${r.source === "web" ? "Studio" : r.author ?? "Claude"}: ${r.body}`);
+  }
+  for (const p of box.replies) {
+    lines.push("", `Studio replied on your update ${p.post_id} "${p.title}":`);
+    for (const r of p.replies) lines.push(`  ${r.source === "web" ? "Studio" : r.author ?? "Claude"}: ${r.body}`);
+  }
+  console.log(lines.join("\n"));
+}
+
 async function main() {
   const cfg = loadConfig();
   if (argv[0] === "post") return post(cfg);
+  if (argv[0] === "inbox") return inbox(cfg);
   const { projects, sessions } = collect(cfg.claudeDir);
   const payload = { machine: { name: cfg.machine, platform: platform() }, projects, sessions };
 

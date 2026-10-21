@@ -4,6 +4,7 @@ import { createPost, deletePost } from '../lib/api'
 import { timeAgo } from '../lib/hooks'
 import type { Post, PostKind, Project } from '../lib/types'
 import { Icon } from './Icon'
+import { Thread } from './Thread'
 import { Modal } from './ui'
 
 const sourceLabel = { claude: 'Claude', cli: 'Script', web: 'You' } as const
@@ -30,9 +31,11 @@ export function Feed({ posts, showProject = true, onChange }: { posts: Post[]; s
             )}
           </p>
           {p.body && <p className="feed-body">{p.body}</p>}
+          {p.brief_title && <p className="feed-brief">Brief: {p.brief_title}</p>}
           <p className="feed-meta">
             {p.source === 'claude' && <Icon name="star" size={11} />}
             <span>{p.author_label ?? sourceLabel[p.source]}</span>
+            <span className="push" />
             <button
               className="feed-delete"
               onClick={() => confirmDelete(p) && deletePost(p.id).then(onChange)}
@@ -41,6 +44,7 @@ export function Feed({ posts, showProject = true, onChange }: { posts: Post[]; s
               Delete
             </button>
           </p>
+          <Thread replies={p.replies} target={{ post_id: p.id }} onChange={onChange} />
         </li>
       ))}
     </ul>

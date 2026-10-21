@@ -1,6 +1,6 @@
-import { demoMachines, demoPosts, demoProjects, demoSessions, demoTokens, demoWorks } from './demo'
+import { demoBriefs, demoMachines, demoPosts, demoProjects, demoSessions, demoTokens, demoWorks } from './demo'
 import { isDemo } from './mode'
-import type { Machine, Post, PostKind, Project, Session, SyncToken, Work, WorkKind } from './types'
+import type { Brief, BriefPriority, BriefStatus, Machine, Post, PostKind, Project, Reply, Session, SyncToken, Work, WorkKind } from './types'
 
 // One data layer for both modes: the Artache API (Netlify Functions + Neon)
 // when configured, in-memory sample data otherwise.
@@ -11,6 +11,7 @@ const mem = {
   works: [...demoWorks],
   tokens: [...demoTokens],
   posts: [...demoPosts],
+  briefs: [...demoBriefs],
 }
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -118,7 +119,8 @@ export async function createPost(p: { project_id: string | null; kind: PostKind;
     const project = mem.projects.find((x) => x.id === p.project_id)
     const created: Post = {
       id: crypto.randomUUID(), body: null, url: null, ...p, project_slug: project?.slug ?? null,
-      project_name: project?.name ?? null, source: 'web', author_label: null, created_at: new Date().toISOString(),
+      project_name: project?.name ?? null, source: 'web', author_label: null, brief_id: null, brief_title: null,
+      replies: [], created_at: new Date().toISOString(),
     }
     mem.posts.unshift(created)
     return created
@@ -132,6 +134,61 @@ export async function deletePost(id: string): Promise<void> {
     return
   }
   await call(`/posts/${id}`, { method: 'DELETE' })
+}
+
+const ACTIVE: BriefStatus[] = ['open', 'accepted', 'in_progress', 'blocked']
+const PRIORITY_ORDER: BriefPriority[] = ['urgent', 'high', 'normal', 'low']
+
+export async function listBriefs(opts: { projectId?: string; active?: boolean } = {}): Promise<Brief[]> {
+  if (isDemo) {
+    return mem.briefs
+      .filter((b) => (!opts.projectId || b.project_id === opts.projectId) && (!opts.active || ACTIVE.includes(b.status)))
+      .sort((a, b) => Number(!ACTIVE.includes(a.status)) - Number(!ACTIVE.includes(b.status)) ||
+        PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority))
+  }
+  const q = new URLSearchParams()
+  if (opts.projectId) q.set('project', opts.projectId)
+  if (opts.active) q.set('status', 'active')
+  return call(`/briefs?${q}`)
+}
+
+export async function saveBrief(b: Partial<Pick<Brief, 'id' | 'project_id' | 'title' | 'body' | 'priority' | 'status' | 'due_on'>>): Promise<Brief> {
+  if (isDemo) {
+    const now = new Date().toISOString()
+    const existing = mem.briefs.find((x) => x.id === b.id)
+    if (existing) {
+      const closed = b.status === 'done' || b.status === 'dropped'
+      return Object.assign(existing, b, { updated_at: now, closed_at: closed ? (existing.closed_at ?? now) : null })
+    }
+    const p = mem.projects.find((x) => x.id === b.project_id)!
+    const created: Brief = {
+      id: crypto.randomUUID(), project_id: p.id, project_slug: p.slug, project_name: p.name, project_color: p.color,
+      title: b.title ?? '', body: b.body ?? null, priority: b.priority ?? 'normal', status: 'open', due_on: b.due_on ?? null,
+      source: 'web', result_url: null, replies: [], updates: [], created_at: now, updated_at: now, closed_at: null,
+    }
+    mem.briefs.unshift(created)
+    return created
+  }
+  return post('/briefs', b)
+}
+
+export async function deleteBrief(id: string): Promise<void> {
+  if (isDemo) {
+    mem.briefs = mem.briefs.filter((b) => b.id !== id)
+    return
+  }
+  await call(`/briefs/${id}`, { method: 'DELETE' })
+}
+
+// A reply from the studio on a brief or on an update a project posted.
+export async function sendReply(target: { brief_id?: string; post_id?: string }, body: string): Promise<Reply> {
+  if (isDemo) {
+    const reply: Reply = { id: crypto.randomUUID(), source: 'web', author: null, body, created_at: new Date().toISOString() }
+    const holder = target.brief_id ? mem.briefs.find((b) => b.id === target.brief_id) : mem.posts.find((p) => p.id === target.post_id)
+    holder?.replies.push(reply)
+    return reply
+  }
+  return post('/replies', { ...target, body })
 }
 
 export async function listTokens(): Promise<SyncToken[]> {

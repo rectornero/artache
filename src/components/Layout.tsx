@@ -3,10 +3,12 @@ import { useAuth } from '../lib/auth'
 import { isDemo } from '../lib/mode'
 import { Icon, type IconName } from './Icon'
 
-const nav: { to: string; label: string; icon: IconName }[] = [
+// Sessions stays off the phone tab bar to keep it at five; Overview links to it.
+const nav: { to: string; label: string; icon: IconName; tab?: false }[] = [
   { to: '/', label: 'Overview', icon: 'home' },
   { to: '/projects', label: 'Projects', icon: 'folder' },
-  { to: '/sessions', label: 'Sessions', icon: 'chat' },
+  { to: '/briefs', label: 'Briefs', icon: 'brief' },
+  { to: '/sessions', label: 'Sessions', icon: 'chat', tab: false },
   { to: '/studio', label: 'Studio', icon: 'star' },
   { to: '/settings', label: 'Settings', icon: 'settings' },
 ]
@@ -67,7 +69,7 @@ export function Layout() {
       </main>
 
       <nav className="tabbar">
-        {nav.map((n) => (
+        {nav.filter((n) => n.tab !== false).map((n) => (
           <NavLink key={n.to} to={n.to} end={n.to === '/'} className="tab">
             <Icon name={n.icon} size={20} />
             <span>{n.label}</span>

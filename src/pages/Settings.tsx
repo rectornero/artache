@@ -24,6 +24,7 @@ export function Settings() {
   const syncCommand = `ARTACHE_URL=${url} ARTACHE_TOKEN=${token} node artache-sync.mjs`
   const mcpCommand = `claude mcp add --transport http --scope user artache ${url}/api/mcp --header "Authorization: Bearer ${token}"`
   const allowJson = `{ "permissions": { "allow": ["mcp__artache"] } }`
+  const hookJson = `{ "hooks": { "SessionStart": [{ "hooks": [{ "type": "command", "command": "node ~/artache-sync.mjs inbox" }] }] } }`
   const postCommand = `node artache-sync.mjs post "Shipped the new editor" --kind release --url https://…`
 
   return (
@@ -77,10 +78,10 @@ export function Settings() {
       </section>
 
       <section className="panel">
-        <header className="panel-head"><h2>Let Claude post here</h2></header>
+        <header className="panel-head"><h2>Connect Claude Code</h2></header>
         <p className="muted">
-          Connect Claude Code once per computer and every project you build with it can post progress to your Updates
-          feed and add platforms, articles and works to the Studio, without you copying anything over.
+          Connect Claude Code once per computer and every project you build with it picks up your briefs, posts progress
+          to your Updates feed and adds platforms, articles and works to the Studio, without you copying anything over.
         </p>
         <ol className="steps">
           <li>
@@ -90,6 +91,11 @@ export function Settings() {
           <li>
             Let Claude use it without asking each time, by adding this to <code className="mono">~/.claude/settings.json</code>:
             <CopyBlock text={allowJson} />
+          </li>
+          <li>
+            Optional: show waiting briefs automatically when a session starts, by adding this hook to
+            <code className="mono">~/.claude/settings.json</code> (needs the sync tool saved as <code className="mono">~/artache-sync.mjs</code> and <code className="mono">~/.artache.json</code>):
+            <CopyBlock text={hookJson} />
           </li>
           <li>
             Tell Claude when to post, by adding this to <code className="mono">~/.claude/CLAUDE.md</code> (all projects)
@@ -140,8 +146,9 @@ export function Settings() {
 
 // Kept in step with the "Posting updates to Artache" guide.
 const CLAUDE_MD = `## Artache
-This studio tracks its work in Artache. The \`artache\` MCP tools post there.
-- After meaningful progress (a feature or fix merged, a release or deploy, a milestone, a decision, or a question the team must answer), post one update with \`artache_post_update\`. Use this repo's GitHub name ("owner/repo") as \`project\`, or the folder name if there is no repo.
+This studio tracks its work in Artache. The \`artache\` MCP tools talk to it.
+- At the start of a session, call \`artache_inbox\` with this repo's GitHub name to see briefs and studio replies for this project. Briefs come first: accept one with \`artache_update_brief\` before starting, say what blocks you in a reply, and mark it done with a \`result_url\` when finished. Answer studio replies with \`artache_reply\`.
+- After meaningful progress (a feature or fix merged, a release or deploy, a milestone, a decision, or a question the team must answer), post one update with \`artache_post_update\` (with \`brief_id\` when it delivers a brief). Use this repo's GitHub name ("owner/repo") as \`project\`, or the folder name if there is no repo.
 - Write the title for someone who didn't see the session (under 100 characters). In the body: what changed, why it matters, what's next. Add a \`url\` to the PR, deploy or doc when there is one.
 - Use kind \`release\` for something shipped, \`milestone\` for a big step, \`question\` when you need a human decision, \`note\` for context, \`update\` otherwise.
 - Don't post for trivial edits, failed attempts or work in progress with nothing to show. One update per meaningful result; check \`artache_recent_updates\` if unsure whether it was already posted.

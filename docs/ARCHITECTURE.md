@@ -22,6 +22,8 @@ works the studio produces. Everything runs on Netlify.
 - `projects`: a codebase or product. Created by hand or by sync. Synced folders merge by GitHub repo name (or folder name), so the same repo on two machines becomes one project with several `local_paths`.
 - `sessions`: one Claude Code conversation (title, folder, branch, model, message count, first and last activity). Unique per `(owner, external_id)`, so re-syncing is idempotent.
 - `works`: the studio's output, with `kind` = `platform` | `article` | `work`, a status pipeline (idea, drafting, in progress, review, published, archived), optional project link, URL, summary, Markdown body and tags. `external_key` lets Claude update the same work on later calls.
+- `briefs`: work the studio hands to a project (title, Markdown body, priority, due date, status `open` → `accepted` → `in_progress` / `blocked` → `done` / `dropped`, result link).
+- `replies`: the conversation on a brief or on a posted update, from the studio (`web`) or the project (`claude`, `cli`).
 - `posts`: the Updates feed. Kind (`update`, `milestone`, `release`, `note`, `question`), title, Markdown body, link, project, and `source` (`claude`, `cli`, `web`).
 
 Every row has an `owner`; the API adds `owner = <signed-in user>` to every query.
@@ -45,16 +47,26 @@ The API hashes the token, finds its owner, upserts the machine, merges projects 
 
 Later options: a Claude Code `SessionEnd` hook that runs the CLI automatically, and importing claude.ai cloud sessions.
 
-## How Claude Code posts updates
+## How Claude Code and the studio talk
 
 `/api/mcp` is a stateless MCP server (streamable HTTP, JSON responses) authenticated with an access token. Once added with
 `claude mcp add --transport http --scope user artache https://<site>/api/mcp --header "Authorization: Bearer art_..."`,
-every Claude Code session on that computer gets five tools: `artache_post_update`, `artache_upsert_work`,
-`artache_list_projects`, `artache_list_works` and `artache_recent_updates`. A CLAUDE.md snippet (shown in Settings) tells
-Claude when to post. Projects are matched by slug, GitHub repo or name, and created on first post.
+every Claude Code session on that computer gets nine tools:
+
+- Project to studio: `artache_post_update` (optionally linked to a brief), `artache_upsert_work`.
+- Studio to project: `artache_inbox` returns the project's active briefs and the updates the studio replied to (the
+  latest reply is from the studio); `artache_update_brief` changes a brief's status and can reply; `artache_reply` answers
+  on a brief or update; `artache_create_brief` lets any Claude (for example the studio's) hand work to a project.
+- Lookups: `artache_list_projects`, `artache_list_works`, `artache_recent_updates`.
+
+A CLAUDE.md snippet (shown in Settings) tells Claude to check the inbox when a session starts and when to post. Nothing
+can wake an idle session, so briefs are picked up at the next session; `artache-sync.mjs inbox` as a `SessionStart` hook
+puts waiting briefs straight into Claude's context. Projects are matched by slug, GitHub repo or name, and created on
+first post (never by an inbox read).
 
 The same operations are plain REST for scripts and CI: `POST /api/v1/posts`, `GET /api/v1/posts`, `POST /api/v1/works`
-(upsert by `key`), `GET /api/v1/works`, `GET /api/v1/projects`, all with `Authorization: Bearer art_...`.
+(upsert by `key`), `GET /api/v1/works`, `GET /api/v1/projects`, `GET /api/v1/inbox?project=`, `GET|POST /api/v1/briefs`
+(`POST /api/v1/briefs/<id>` updates), `POST /api/v1/replies`, all with `Authorization: Bearer art_...`.
 
 ## Preview mode
 

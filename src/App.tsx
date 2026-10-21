@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
+import { Briefs } from './pages/Briefs'
 import { AuthProvider, useAuth } from './lib/auth'
 import { isDemo } from './lib/mode'
 import { Login } from './pages/Login'
@@ -19,6 +20,7 @@ function Gate() {
         <Route index element={<Overview />} />
         <Route path="projects" element={<Projects />} />
         <Route path="projects/:slug" element={<ProjectDetail />} />
+        <Route path="briefs" element={<Briefs />} />
         <Route path="sessions" element={<Sessions />} />
         <Route path="studio" element={<Studio />} />
         <Route path="settings" element={<Settings />} />

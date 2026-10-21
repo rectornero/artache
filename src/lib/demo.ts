@@ -1,4 +1,4 @@
-import type { Machine, Post, Project, Session, SyncToken, Work } from './types'
+import type { Brief, Machine, Post, Project, Session, SyncToken, Work } from './types'
 
 const ago = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString()
 
@@ -56,8 +56,23 @@ export const demoTokens: SyncToken[] = [
 ]
 
 export const demoPosts: Post[] = [
-  { id: 'u1', project_id: 'p2', project_slug: 'overgame', project_name: 'Overgame', kind: 'release', title: 'Matchmaking is live', body: 'Players are now paired by skill rating within 10 seconds. The queue falls back to wider ranges after 30 seconds so nobody waits forever.', url: 'https://github.com/rectornero/overgame/pull/42', source: 'claude', author_label: 'Claude on studio-mac', created_at: ago(0.8) },
-  { id: 'u2', project_id: 'p1', project_slug: 'artache', project_name: 'Artache', kind: 'milestone', title: 'Claude projects can now post here', body: 'Any Claude Code session with the Artache connector can publish updates and catalogue works on its own.', url: null, source: 'claude', author_label: 'Claude', created_at: ago(2) },
-  { id: 'u3', project_id: 'p4', project_slug: 'deadend', project_name: 'Deadend', kind: 'question', title: 'Autosave every 30s or on every edit?', body: 'Every edit is safer but writes ~40 times a minute while dragging. Leaning to debounced 2s.', url: null, source: 'claude', author_label: 'Claude on travel-laptop', created_at: ago(5) },
-  { id: 'u4', project_id: 'p3', project_slug: 'novaula', project_name: 'Novaula', kind: 'update', title: 'Course page redesign merged', body: null, url: null, source: 'cli', author_label: 'studio-mac', created_at: ago(26) },
+  { id: 'u1', project_id: 'p2', project_slug: 'overgame', project_name: 'Overgame', kind: 'release', title: 'Matchmaking is live', body: 'Players are now paired by skill rating within 10 seconds. The queue falls back to wider ranges after 30 seconds so nobody waits forever.', url: 'https://github.com/rectornero/overgame/pull/42', source: 'claude', author_label: 'Claude on studio-mac', brief_id: 'b2', brief_title: 'Ship matchmaking', replies: [{ id: 'r3', source: 'web', author: null, body: 'Great. Can we open it to the beta group tomorrow?', created_at: ago(0.5) }], created_at: ago(0.8) },
+  { id: 'u2', project_id: 'p1', project_slug: 'artache', project_name: 'Artache', kind: 'milestone', title: 'Claude projects can now post here', body: 'Any Claude Code session with the Artache connector can publish updates and catalogue works on its own.', url: null, source: 'claude', author_label: 'Claude', brief_id: null, brief_title: null, replies: [], created_at: ago(2) },
+  { id: 'u3', project_id: 'p4', project_slug: 'deadend', project_name: 'Deadend', kind: 'question', title: 'Autosave every 30s or on every edit?', body: 'Every edit is safer but writes ~40 times a minute while dragging. Leaning to debounced 2s.', url: null, source: 'claude', author_label: 'Claude on travel-laptop', brief_id: null, brief_title: null, replies: [{ id: 'r4', source: 'web', author: null, body: 'Debounced 2s is fine.', created_at: ago(4) }, { id: 'r5', source: 'claude', author: 'Claude on travel-laptop', body: 'Done, autosave now waits 2s after the last edit.', created_at: ago(3.5) }], created_at: ago(5) },
+  { id: 'u4', project_id: 'p3', project_slug: 'novaula', project_name: 'Novaula', kind: 'update', title: 'Course page redesign merged', body: null, url: null, source: 'cli', author_label: 'studio-mac', brief_id: null, brief_title: null, replies: [], created_at: ago(26) },
+]
+
+const brief = (b: Partial<Brief> & Pick<Brief, 'id' | 'project_id' | 'title'>): Brief => {
+  const p = demoProjects.find((x) => x.id === b.project_id)!
+  return {
+    project_slug: p.slug, project_name: p.name, project_color: p.color, body: null, priority: 'normal', status: 'open',
+    due_on: null, source: 'web', result_url: null, replies: [], updates: [], created_at: ago(30), updated_at: ago(3),
+    closed_at: null, ...b,
+  }
+}
+
+export const demoBriefs: Brief[] = [
+  brief({ id: 'b1', project_id: 'p3', title: 'Add a free first lesson to every course', body: 'Visitors should be able to try one lesson without an account. Done when the course page shows a "Try it free" button that opens lesson 1.', priority: 'high', due_on: new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10) }),
+  brief({ id: 'b2', project_id: 'p2', title: 'Ship matchmaking', priority: 'urgent', status: 'done', result_url: 'https://github.com/rectornero/overgame/pull/42', closed_at: ago(0.8), replies: [{ id: 'r1', source: 'claude', author: 'Claude on studio-mac', body: 'Accepted. Starting with skill-rating buckets.', created_at: ago(20) }], updates: [{ id: 'u1', title: 'Matchmaking is live', url: 'https://github.com/rectornero/overgame/pull/42', kind: 'release', created_at: ago(0.8) }] }),
+  brief({ id: 'b3', project_id: 'p4', title: 'Trailer cut for the launch page', status: 'in_progress', replies: [{ id: 'r2', source: 'claude', author: 'Claude on travel-laptop', body: 'Working on it. Blocked on the final music track: which one should I use?', created_at: ago(6) }] }),
 ]
