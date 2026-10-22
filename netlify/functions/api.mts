@@ -6,7 +6,10 @@ import type { Config } from '@netlify/functions'
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 
 const env = (k: string) => process.env[k] ?? ''
-const configured = () => Boolean(env('DATABASE_URL') && env('GITHUB_CLIENT_ID') && env('GITHUB_CLIENT_SECRET') && env('SESSION_SECRET'))
+const REQUIRED = ['DATABASE_URL', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'SESSION_SECRET']
+// Names only, never values: tells whoever sets up the site which variables the function can't see.
+const missing = () => REQUIRED.filter((k) => !env(k))
+const configured = () => missing().length === 0
 
 let _sql: ReturnType<typeof neon<false, false>> | null = null
 const db = () => (_sql ??= neon<false, false>(env('DATABASE_URL')))
@@ -703,12 +706,12 @@ async function route(req: Request): Promise<Response> {
   const seg = path.split('/').filter(Boolean)
 
   if (path === '/me') {
-    if (!configured()) return json({ configured: false, user: null })
+    if (!configured()) return json({ configured: false, missing: missing(), user: null })
     const id = sessionUserId(req)
     const [user] = id ? await db()`select id, login, name, avatar_url from users where id = ${id}` : []
     return json({ configured: true, user: user ?? null })
   }
-  if (!configured()) throw new HttpError(503, 'Artache is not configured yet')
+  if (!configured()) throw new HttpError(503, `Artache is not configured yet: the server can't see ${missing().join(', ')}`)
 
   if (path === '/auth/login') return login(req)
   if (path === '/auth/callback') return callback(req)
