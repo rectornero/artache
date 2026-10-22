@@ -38,6 +38,8 @@ Updates feed, and you can reply on any update.
 
 Settings has a "Connect Claude Code" section: one `claude mcp add` command per computer, a permission line and a
 CLAUDE.md snippet.
+Cloud sessions (claude.ai projects) have no MCP tools: give their cloud environment network access to the
+site and an `ARTACHE_TOKEN` variable, and the snippet tells them to use `/api/v1` over HTTPS instead.
 Scripts can post too: `node artache-sync.mjs post "Shipped it" --kind release`.
 
 ## Stack
