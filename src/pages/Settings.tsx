@@ -4,7 +4,7 @@ import { ErrorNote, Loading, PageHeader } from '../components/ui'
 import { createToken, listMachines, listTokens, revokeToken } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { timeAgo, useAsync } from '../lib/hooks'
-import { isDemo } from '../lib/mode'
+import { isDemo, reloadIfLive } from '../lib/mode'
 
 export function Settings() {
   const { name, login, signOut } = useAuth()
@@ -14,6 +14,7 @@ export function Settings() {
 
   async function create(e: React.FormEvent) {
     e.preventDefault()
+    if (await reloadIfLive()) return
     setFresh(await createToken(label || 'my computer'))
     setLabel('')
     reload()

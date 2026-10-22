@@ -17,3 +17,20 @@ export async function detectMode() {
     isDemo = true
   }
 }
+
+// A tab opened while the site was unconfigured would otherwise stay in preview
+// mode after setup, handing out tokens that never reach the server. Reload as
+// soon as the site turns out to be live.
+export async function reloadIfLive() {
+  if (!isDemo) return false
+  await detectMode()
+  if (isDemo) return false
+  window.location.reload()
+  return true
+}
+
+export function watchMode() {
+  const check = () => document.visibilityState === 'visible' && void reloadIfLive()
+  window.addEventListener('focus', check)
+  document.addEventListener('visibilitychange', check)
+}
