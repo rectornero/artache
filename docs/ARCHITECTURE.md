@@ -43,9 +43,11 @@ Claude Code stores each conversation as a JSONL transcript under
 2. Looks up each folder's GitHub `origin` to link sessions to repos.
 3. Posts `{ machine, projects, sessions }` to `/api/sync` with `Authorization: Bearer art_...`.
 
-The API hashes the token, finds its owner, upserts the machine, merges projects by slug and upserts sessions in batches of 200. Scheduling the CLI every 15 minutes (cron, launchd, Task Scheduler) keeps everything current.
+The API hashes the token, finds its owner, upserts the machine, merges projects by slug and upserts sessions in batches of 200. A Claude Code `SessionEnd` hook (`node ~/artache-sync.mjs`, shown in Settings) keeps everything current: it runs
+once when a session ends, so the database only wakes when there is something new. Don't schedule the CLI on a timer
+(see the Netlify credit rules in `CLAUDE.md`).
 
-Later options: a Claude Code `SessionEnd` hook that runs the CLI automatically, and importing claude.ai cloud sessions.
+Later option: importing claude.ai cloud sessions.
 
 ## How Claude Code and the studio talk
 

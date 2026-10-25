@@ -29,4 +29,6 @@ Where Artache stands (2026-10-25): no scheduled or background functions, no clie
 polling, no AI Gateway. The one function `api` (1024 MB) runs only when someone calls
 it. The database is Neon on Nero's own account, so its compute is billed by Neon, not
 Netlify, but every call still wakes it from sleep. Production deploys are the main
-Netlify cost here.
+Netlify cost here. `netlify.toml` has an `ignore` rule, so a push that only changes
+Markdown, `docs/` or `cli/` skips the build and costs nothing. History sync runs from a
+Claude Code `SessionEnd` hook, never on a timer.

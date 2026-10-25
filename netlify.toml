@@ -1,6 +1,9 @@
 [build]
   command = "node scripts/migrate.mjs && npm run build"
   publish = "dist"
+  # Skip the build (and its 15-credit production deploy) when only docs, notes or the
+  # CLI source changed. The served copy of the CLI is public/artache-sync.mjs.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)*.md' ':(exclude)docs/' ':(exclude)cli/'"
 
 [build.environment]
   NODE_VERSION = "22"
