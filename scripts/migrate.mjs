@@ -1,10 +1,17 @@
 // Applies db/migrations/*.sql in order, once each. Runs during the Netlify build.
+// Only production builds touch the database: Deploy Previews and branch deploys
+// share it, and waking it for them costs credits (and could migrate it early).
 import { neon } from '@neondatabase/serverless'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 if (!process.env.DATABASE_URL) {
   console.log('migrate: DATABASE_URL not set, skipping')
+  process.exit(0)
+}
+
+if (process.env.CONTEXT && process.env.CONTEXT !== 'production') {
+  console.log(`migrate: ${process.env.CONTEXT} build, skipping (production builds only)`)
   process.exit(0)
 }
 
