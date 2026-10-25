@@ -26,6 +26,7 @@ export function Settings() {
   const mcpCommand = `claude mcp add --transport http --scope user artache ${url}/api/mcp --header "Authorization: Bearer ${token}"`
   const allowJson = `{ "permissions": { "allow": ["mcp__artache"] } }`
   const hookJson = `{ "hooks": { "SessionStart": [{ "hooks": [{ "type": "command", "command": "node ~/artache-sync.mjs inbox" }] }] } }`
+  const syncHookJson = `{ "hooks": { "SessionEnd": [{ "hooks": [{ "type": "command", "command": "node ~/artache-sync.mjs" }] }] } }`
   const postCommand = `node artache-sync.mjs post "Shipped the new editor" --kind release --url https://…`
 
   return (
@@ -123,7 +124,13 @@ export function Settings() {
             Run it from a terminal with the computer's token:
             <CopyBlock text={syncCommand} />
           </li>
-          <li>To keep it fresh, schedule it (cron, launchd or Task Scheduler) every 15 minutes.</li>
+          <li>
+            To keep it fresh, run it when a session ends, by adding this hook to{' '}
+            <code className="mono">~/.claude/settings.json</code> (needs the sync tool saved as{' '}
+            <code className="mono">~/artache-sync.mjs</code> and <code className="mono">~/.artache.json</code>):
+            <CopyBlock text={syncHookJson} />
+            Don't schedule it on a timer: every run wakes the database, and timers run even when nothing changed.
+          </li>
         </ol>
         {data && (
           <>
