@@ -31,4 +31,5 @@ it. The database is Neon on Nero's own account, so its compute is billed by Neon
 Netlify, but every call still wakes it from sleep. Production deploys are the main
 Netlify cost here. `netlify.toml` has an `ignore` rule, so a push that only changes
 Markdown, `docs/` or `cli/` skips the build and costs nothing. History sync runs from a
-Claude Code `SessionEnd` hook, never on a timer.
+Claude Code `SessionEnd` hook, never on a timer. Migrations (`scripts/migrate.mjs`) run
+on production builds only, so Deploy Previews and branch deploys never wake the database.
