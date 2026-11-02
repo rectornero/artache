@@ -1,6 +1,6 @@
 # Artache
 
-*With AI. By People.*
+*With AI. For People.*
 
 Live at **https://artache.netlify.app**.
 

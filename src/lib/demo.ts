@@ -46,7 +46,7 @@ export const demoWorks: Work[] = [
   { id: 'w1', project_id: 'p2', kind: 'platform', title: 'Overgame', status: 'published', url: 'https://overgame.example', summary: 'Live game platform.', body: null, tags: ['games'], published_at: ago(100), updated_at: ago(3) },
   { id: 'w2', project_id: 'p3', kind: 'platform', title: 'Novaula', status: 'in_progress', url: null, summary: 'Learning platform, beta soon.', body: null, tags: ['education'], published_at: null, updated_at: ago(8) },
   { id: 'w3', project_id: null, kind: 'article', title: 'Execution first: building a studio with AI', status: 'drafting', url: null, summary: 'Manifesto for the Artache way of working.', body: null, tags: ['manifesto'], published_at: null, updated_at: ago(2) },
-  { id: 'w4', project_id: null, kind: 'article', title: 'With AI. By People.', status: 'idea', url: null, summary: 'Why the human stays the author.', body: null, tags: [], published_at: null, updated_at: ago(20) },
+  { id: 'w4', project_id: null, kind: 'article', title: 'With AI. For People.', status: 'idea', url: null, summary: 'Why people are the reason we make things.', body: null, tags: [], published_at: null, updated_at: ago(20) },
   { id: 'w5', project_id: 'p4', kind: 'work', title: 'Deadend trailer', status: 'review', url: null, summary: null, body: null, tags: ['video'], published_at: null, updated_at: ago(12) },
   { id: 'w6', project_id: null, kind: 'work', title: 'Artache brand kit', status: 'in_progress', url: null, summary: 'Logo, palette and type.', body: null, tags: ['brand'], published_at: null, updated_at: ago(1) },
 ]
