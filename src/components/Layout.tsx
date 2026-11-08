@@ -48,7 +48,7 @@ export function Layout() {
               </button>
             )}
           </div>
-          <p className="tagline">With AI. By People.</p>
+          <p className="tagline">With AI. For People.</p>
         </div>
       </aside>
 
