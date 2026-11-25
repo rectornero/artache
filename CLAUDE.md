@@ -33,3 +33,10 @@ Netlify cost here. `netlify.toml` has an `ignore` rule, so a push that only chan
 Markdown, `docs/` or `cli/` skips the build and costs nothing. History sync runs from a
 Claude Code `SessionEnd` hook, never on a timer. Migrations (`scripts/migrate.mjs`) run
 on production builds only, so Deploy Previews and branch deploys never wake the database.
+
+## Artache Chat (`chat/`)
+
+Self-hosted end-to-end encrypted chat that runs on Nero's PC (Tuwunel Matrix server in
+Docker, reached through Tailscale), not on Netlify. `netlify.toml` skips the site build for
+`chat/`-only changes. See `chat/README.md`. Never write custom crypto for it; clients use a
+Matrix SDK (`matrix-js-sdk` Rust crypto or `matrix-rust-sdk`).

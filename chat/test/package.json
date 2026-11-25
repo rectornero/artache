@@ -1,0 +1,13 @@
+{
+  "name": "artache-chat-tests",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end checks against a running Artache Chat server.",
+  "scripts": {
+    "smoke": "node smoke.mjs"
+  },
+  "dependencies": {
+    "matrix-encrypt-attachment": "^1.0.3",
+    "matrix-js-sdk": "^45.2.0"
+  }
+}

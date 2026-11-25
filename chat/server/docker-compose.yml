@@ -1,0 +1,23 @@
+# Artache Chat server. Started and stopped by ../scripts/artache-chat.ps1.
+name: artache-chat
+
+services:
+  homeserver:
+    # Pinned release. "artache-chat.ps1 update -Version vX.Y.Z" changes this line.
+    image: jevolk/tuwunel:v2.0.0
+    restart: unless-stopped
+    command: ["--config", "/etc/tuwunel/tuwunel.toml"]
+    ports:
+      # Only this PC can reach port 8008. Friends come in through Tailscale.
+      - "127.0.0.1:8008:8008"
+    volumes:
+      - ./tuwunel.toml:/etc/tuwunel/tuwunel.toml:ro
+      - ./secrets:/etc/tuwunel/secrets:ro
+      # Database and media live in a Docker volume (inside Docker's own Linux disk),
+      # which RocksDB needs for speed and safe writes on Windows.
+      - db:/var/lib/tuwunel
+    environment:
+      TUWUNEL_SERVER_NAME: ${SERVER_NAME:?run "artache-chat.ps1 setup" first}
+
+volumes:
+  db:

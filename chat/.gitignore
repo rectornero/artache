@@ -1,0 +1,5 @@
+# Made by artache-chat.ps1 on the PC; never commit them.
+server/.env
+server/secrets/
+logs/
+test/node_modules/

@@ -1,0 +1,49 @@
+# Artache Chat server settings (Tuwunel 2.x, a Matrix homeserver).
+# Full reference of every option: https://tuwunel.chat/configuration.html
+#
+# Read this first:
+# - server_name is permanent. It becomes the end of every ID (@nero:<server_name>).
+#   Changing it later means wiping the database. setup.ps1 writes it to .env and
+#   docker-compose.yml passes it in as TUWUNEL_SERVER_NAME, so it is not set here.
+# - The invite token lives in server/secrets/invite-token, never in this file.
+
+[global]
+database_path = "/var/lib/tuwunel"
+
+[global.http]
+# Biggest single upload (videos, voice messages, images). Matrix apps check this.
+max_request_size = "200 MiB"
+
+[global.http.listen]
+# Inside the container. docker-compose.yml publishes it only on 127.0.0.1 of the PC,
+# so nothing on the home network can reach it directly; Tailscale is the only way in.
+address = ["0.0.0.0"]
+port = 8008
+
+[global.registration]
+# Invite-only: an account can be made only with the current invite token.
+enable = true
+token_file = "/etc/tuwunel/secrets/invite-token"
+# The first account made becomes the server admin. Make yours first.
+grant_admin_to_first_user = true
+displayname_suffix = ""
+forbidden_usernames = ["admin", "root", "artache", "support", "system"]
+
+[global.registration.guests]
+enable = false
+
+[global.federation]
+# A private island: no talking to other Matrix servers, so no data leaves the PC
+# except to your friends' own apps. Can be turned on later without losing anything.
+enable = false
+
+[global.encryption]
+allow = true
+# Every new room, including group chats, starts end-to-end encrypted.
+enabled_by_default_for_room_type = "all"
+
+[global.media.url_preview]
+# Link previews are off: the server would have to fetch every shared link itself,
+# which tells the linked site your PC's address. Artache apps can build previews
+# on the sender's device instead.
+domain_explicit_allowlist = []
