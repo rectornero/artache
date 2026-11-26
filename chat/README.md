@@ -29,7 +29,9 @@ yet installed on the PC. No Artache interface yet; any Matrix app works meanwhil
 - **Reach**: the server listens only on `127.0.0.1`. Friends reach it through Tailscale,
   either Funnel (a public `https://<pc>.<tailnet>.ts.net` address) or by joining Nero's
   tailnet. The home router stays closed.
-- **IDs**: `@name:<server name>`. The server name is fixed forever at setup.
+- **IDs**: `@name:tzero.live` (Nero's choice, 2026-11-26), fixed forever at setup. tzero.live
+  (on Netlify) serves one static file, `/.well-known/matrix/client`, pointing apps to the
+  PC's `https://<pc>.<tailnet>.ts.net` address. `setup` prints its exact contents.
 - **Invite-only**: accounts need the current invite token. `invite` makes a new one and the
   old one stops working at once (no restart). The first account becomes the admin.
 - **Private island**: federation with other Matrix servers is off, link previews on the server
@@ -68,7 +70,7 @@ when a release lands); disk space for videos.
 Needs Docker Desktop and Tailscale, both signed in. From PowerShell in this `chat` folder:
 
 ```powershell
-.\scripts\artache-chat.ps1 setup                 # once: server name, invite token, start, open to friends
+.\scripts\artache-chat.ps1 setup -ServerName tzero.live   # once: server name, invite token, start, open to friends
 .\scripts\artache-chat.ps1 status
 .\scripts\artache-chat.ps1 invite                # new invite token for a friend
 .\scripts\artache-chat.ps1 backup                # copy to Documents\Artache Chat backups (keeps 7)

@@ -5,7 +5,8 @@
 .DESCRIPTION
   One script for everything. Run it from PowerShell in the chat folder:
 
-    .\scripts\artache-chat.ps1 setup            First time only. Picks the server name, makes the
+    .\scripts\artache-chat.ps1 setup -ServerName tzero.live
+                                                 First time only. Picks the server name, makes the
                                                  invite token, starts the server, opens it to friends.
     .\scripts\artache-chat.ps1 status           Is it running, and at which address.
     .\scripts\artache-chat.ps1 start | stop     Start or stop the server.
@@ -164,8 +165,10 @@ switch ($Command) {
     if ($existing) {
       Fail "Already set up as '$existing'. The server name cannot change without wiping the chat history. Use 'start' instead."
     }
-    if (-not $ServerName) { $ServerName = Get-TailscaleName }
+    $tsName = Get-TailscaleName
+    if (-not $ServerName) { $ServerName = $tsName }
     Write-Log "Server name will be: $ServerName (permanent, it ends every ID)."
+    Write-Log "Apps reach it at: https://$tsName"
     $answer = Read-Host "Type YES to continue"
     if ($answer -ne "YES") { Fail "Stopped before changing anything." }
 
@@ -181,14 +184,20 @@ switch ($Command) {
     if ($ts) {
       if ($Reach -eq "public") {
         & $ts funnel --bg $Port
-        Write-Log "Opened to friends through Tailscale Funnel at https://$ServerName."
+        Write-Log "Opened to friends through Tailscale Funnel at https://$tsName."
       } else {
         & $ts serve --bg $Port
-        Write-Log "Opened to your Tailscale network at https://$ServerName."
+        Write-Log "Opened to your Tailscale network at https://$tsName."
       }
       if ($LASTEXITCODE -ne 0) { Write-Log "Tailscale could not open the port. Run 'tailscale funnel --bg $Port' by hand and follow the link it prints to allow Funnel." }
     }
 
+    if ($ServerName -ne $tsName) {
+      Write-Host ""
+      Write-Host "Put this file on https://$ServerName/.well-known/matrix/client" -ForegroundColor Yellow
+      Write-Host "(served with the header Access-Control-Allow-Origin: *), so apps find this PC:"
+      Write-Host "  {""m.homeserver"": {""base_url"": ""https://$tsName""}}"
+    }
     Write-Host ""
     Write-Host "Next: make YOUR account first, it becomes the admin." -ForegroundColor Yellow
     Show-FriendNote $ServerName $token
